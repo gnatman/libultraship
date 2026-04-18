@@ -1,0 +1,15 @@
+{
+  "name": "libultraship",
+  "version": "1.0.0",
+  "dependencies": [
+    "zlib",
+    "bzip2",
+    "sdl2",
+    "glew",
+    "libzip",
+    "nlohmann-json",
+    "tinyxml2",
+    "spdlog"
+  ],
+  "builtin-baseline": "2e58bb35ff7a3a037920d959ce20cb4d8c22319a"
+}
