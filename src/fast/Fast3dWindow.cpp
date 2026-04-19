@@ -214,6 +214,21 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
 void Fast3dWindow::HandleEvents() {
     mWindowManagerApi->HandleEvents();
+
+    if (Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger("gMockVREnabled", 0)) {
+        // Mock VR movement with mouse when Alt is held
+        bool altHeld = Ship::Context::GetInstance()->GetControlDeck()->ProcessKeyboardEvent(
+                           Ship::KbEventType::LUS_KB_EVENT_KEY_DOWN, Ship::KbScancode::LUS_KB_LALT) ||
+                       Ship::Context::GetInstance()->GetControlDeck()->ProcessKeyboardEvent(
+                           Ship::KbEventType::LUS_KB_EVENT_KEY_DOWN, Ship::KbScancode::LUS_KB_RALT);
+
+        if (altHeld) {
+            Ship::Coords delta = GetMouseDelta();
+            float sensitivity = 0.005f;
+            mMockPose.rot[1] -= delta.x * sensitivity; // Yaw
+            mMockPose.rot[0] -= delta.y * sensitivity; // Pitch
+        }
+    }
 }
 
 void Fast3dWindow::SetCursorVisibility(bool visible) {
@@ -332,6 +347,10 @@ bool Fast3dWindow::IsRunning() {
 
 uintptr_t Fast3dWindow::GetGfxFrameBuffer() {
     return mInterpreter->mGfxFrameBuffer;
+}
+
+Ship::VRPose Fast3dWindow::GetVRPose() {
+    return mMockPose;
 }
 
 const char* Fast3dWindow::GetKeyName(int32_t scancode) {

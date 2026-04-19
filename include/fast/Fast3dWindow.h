@@ -45,6 +45,7 @@ class Fast3dWindow : public Ship::Window {
     bool IsFullscreen() override;
     bool IsRunning() override;
     uintptr_t GetGfxFrameBuffer() override;
+    Ship::VRPose GetVRPose() override;
     const char* GetKeyName(int32_t scancode) override;
 
     void InitWindowManager();
@@ -72,5 +73,6 @@ class Fast3dWindow : public Ship::Window {
     GfxRenderingAPI* mRenderingApi;
     GfxWindowBackend* mWindowManagerApi;
     std::shared_ptr<Interpreter> mInterpreter = nullptr;
+    Ship::VRPose mMockPose = {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
 };
 } // namespace Fast
