@@ -1378,7 +1378,13 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
 
     if (parameters & mtx_projection) {
         if (parameters & mtx_load) {
-            memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
+            if (mVRActive) {
+                // Ortho detection: guOrtho has mf[3][3] = 1.0, guPerspective has mf[3][3] = 0.0
+                mVRIsOrtho = (matrix[3][3] > 0.5f);
+                memcpy(mRsp->P_matrix, mVREyeProjection[mVREyeIndex], sizeof(float) * 16);
+            } else {
+                memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
+            }
         } else {
             MatrixMul(mRsp->P_matrix, matrix, mRsp->P_matrix);
         }
@@ -1389,9 +1395,27 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
                    mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 2], sizeof(matrix));
         }
         if (parameters & mtx_load) {
-            if (mRsp->modelview_matrix_stack_size == 0)
+            if (mRsp->modelview_matrix_stack_size == 0) {
                 ++mRsp->modelview_matrix_stack_size;
-            memcpy(mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1], matrix, sizeof(matrix));
+            }
+
+            if (mVRActive && (mVRIsOrtho || mVRCinemaMode)) {
+                // Inject quad transform: 0-320, 0-240 -> 3D quad in front of eye
+                float scale = 0.00625f; // 2.0 / 320.0
+                float quadMtx[4][4] = { 0 };
+                quadMtx[0][0] = scale;
+                quadMtx[1][1] = -scale;
+                quadMtx[2][2] = scale;
+                quadMtx[3][0] = -160.0f * scale;
+                quadMtx[3][1] = 120.0f * scale;
+                quadMtx[3][2] = -2.0f;
+                quadMtx[3][3] = 1.0f;
+
+                // Combine game's ModelView with our quad transform
+                MatrixMul(mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1], matrix, quadMtx);
+            } else {
+                memcpy(mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1], matrix, sizeof(matrix));
+            }
         } else {
             MatrixMul(mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1], matrix,
                       mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1]);
@@ -1415,6 +1439,9 @@ void Interpreter::GfxSpPopMatrix(uint32_t count) {
 }
 
 float Interpreter::AdjXForAspectRatio(float x) const {
+    if (mVRActive) {
+        return x;
+    }
     // Skip widescreen adjustment for fixed-size off-screen FBs (HUD elements,
     // small capture buffers). But resizable FBs (resize=true) are capturing
     // the main scene and should match the window's aspect ratio.
@@ -4649,6 +4676,7 @@ static void gfx_step() {
 }
 
 void Interpreter::SpReset() {
+    mVRIsOrtho = false;
     while (!mShaderStack.empty()) {
         mShaderStack.pop();
     }
@@ -4751,6 +4779,7 @@ bool Interpreter::ViewportMatchesRendererResolution() {
 }
 
 void Interpreter::StartFrame() {
+    mVRCinemaMode = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger("gVRCinemaMode", 0);
     mWapi->GetDimensions(&mGfxCurrentWindowDimensions.width, &mGfxCurrentWindowDimensions.height, &mCurWindowPosX,
                          &mCurWindowPosY);
     if (mCurDimensions.height == 0) {

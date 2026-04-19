@@ -399,6 +399,10 @@ class Interpreter {
     void SetMsaaLevel(uint32_t level);
     void GetCurDimensions(uint32_t* width, uint32_t* height);
 
+    void SetVRActive(bool active) { mVRActive = active; }
+    void SetVREye(int eye) { mVREyeIndex = eye; }
+    void SetVREyeProjection(int eye, float mat[4][4]) { memcpy(mVREyeProjection[eye], mat, sizeof(float) * 16); }
+
     // private: TODO make these private
     void Flush();
     ShaderProgram* LookupOrCreateShaderProgram(uint64_t id0, uint64_t id1);
@@ -481,6 +485,12 @@ class Interpreter {
     static void NormalizeVector(float v[3]);
     static void TransposedMatrixMul(float res[3], const float a[3], const float b[4][4]);
     static void MatrixMul(float res[4][4], const float a[4][4], const float b[4][4]);
+
+    bool mVRActive = false;
+    bool mVRIsOrtho = false;
+    bool mVRCinemaMode = false;
+    int mVREyeIndex = 0;
+    float mVREyeProjection[2][4][4];
 
     RSP* mRsp;
     RDP* mRdp;
