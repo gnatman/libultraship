@@ -27,6 +27,12 @@ struct CoordsF {
     float y;
 };
 
+/** @brief Represents a 6DOF pose in VR space. */
+struct VRPose {
+    float pos[3]; // X, Y, Z in meters
+    float rot[3]; // Pitch, Yaw, Roll in radians
+};
+
 class Config;
 
 /**
@@ -147,6 +153,9 @@ class Window {
     virtual const char* GetKeyName(int32_t scancode) = 0;
     /** @brief Returns a handle to the graphics API framebuffer object. */
     virtual uintptr_t GetGfxFrameBuffer() = 0;
+
+    /** @brief Returns the current VR pose if available. */
+    virtual VRPose GetVRPose() = 0;
 
     /** @brief Returns the current graphics backend identifier. */
     WindowBackend GetWindowBackend();
