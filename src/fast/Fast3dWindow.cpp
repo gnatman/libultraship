@@ -207,14 +207,37 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
     wnd->GetMouseStateManager()->StartFrame();
     // Setup of the backend frames and draw initial Window and GUI menus
     gui->StartDraw();
-    // Setup game framebuffers to match available window space
-    mInterpreter->StartFrame();
-    // Execute the games gfx commands
-    mInterpreter->Run(commands, mtxReplacements);
-    // Renders the game frame buffer to the final window and finishes the GUI
-    gui->EndDraw();
-    // Finalize swap buffers
-    mInterpreter->EndFrame();
+    
+    if (mVRSession && mVRSession->IsActive()) {
+        for (int eye = 0; eye < 2; eye++) {
+            void* eyeRtv = mVRSession->BeginEye(eye);
+            if (eyeRtv) {
+                SetVREyeRT(eyeRtv);
+                Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", eye);
+                mInterpreter->StartFrame();
+                mInterpreter->Run(commands, mtxReplacements);
+                mVRSession->EndEye(eye);
+            }
+        }
+        
+        // Reset to default
+        SetVREyeRT(nullptr);
+        Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", 0);
+        
+        mInterpreter->StartFrame();
+        mInterpreter->Run(commands, mtxReplacements);
+        gui->EndDraw();
+        mInterpreter->EndFrame();
+    } else {
+        // Setup game framebuffers to match available window space
+        mInterpreter->StartFrame();
+        // Execute the games gfx commands
+        mInterpreter->Run(commands, mtxReplacements);
+        // Renders the game frame buffer to the final window and finishes the GUI
+        gui->EndDraw();
+        // Finalize swap buffers
+        mInterpreter->EndFrame();
+    }
 
     return true;
 }
