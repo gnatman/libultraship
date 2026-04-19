@@ -185,63 +185,141 @@ bool VRSession::BeginFrame() {
     XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };
     xrBeginFrame(mSession, &beginInfo);
 
+    // Locate views for the current frame
+    XrViewLocateInfo viewLocateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
+    viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    viewLocateInfo.displayTime = mFrameState.predictedDisplayTime;
+    viewLocateInfo.space = mAppSpace;
+
+    uint32_t viewCount = 0;
+    XrViewState viewState = { XR_TYPE_VIEW_STATE };
+    mViews.resize(mSwapchains.size(), { XR_TYPE_VIEW });
+    xrLocateViews(mSession, &viewLocateInfo, &viewState, (uint32_t)mViews.size(), &viewCount, mViews.data());
+
     return true;
+}
+
+void VRSession::GetProjectionMatrix(int eye, float nearZ, float farZ, float mat[4][4]) const {
+    if (eye >= mViews.size()) return;
+
+    const XrFovf& fov = mViews[eye].fov;
+    float tanLeft = tanf(fov.angleLeft);
+    float tanRight = tanf(fov.angleRight);
+    float tanUp = tanf(fov.angleUp);
+    float tanDown = tanf(fov.angleDown);
+
+    float tanWidth = tanRight - tanLeft;
+    float tanHeight = tanUp - tanDown;
+
+    mat[0][0] = 2.0f / tanWidth;
+    mat[0][1] = 0.0f;
+    mat[0][2] = 0.0f;
+    mat[0][3] = 0.0f;
+
+    mat[1][0] = 0.0f;
+    mat[1][1] = 2.0f / tanHeight;
+    mat[1][2] = 0.0f;
+    mat[1][3] = 0.0f;
+
+    mat[2][0] = (tanRight + tanLeft) / tanWidth;
+    mat[2][1] = (tanUp + tanDown) / tanHeight;
+    mat[2][2] = -(farZ + nearZ) / (farZ - nearZ);
+    mat[2][3] = -1.0f;
+
+    mat[3][0] = 0.0f;
+    mat[3][1] = 0.0f;
+    mat[3][2] = -(2.0f * farZ * nearZ) / (farZ - nearZ);
+    mat[3][3] = 0.0f;
+}
+
+void VRSession::GetViewMatrix(int eye, float mat[4][4]) const {
+    if (eye >= mViews.size()) return;
+
+    const XrPosef& pose = mViews[eye].pose;
+    
+    // Convert quaternion to rotation matrix
+    float x = pose.orientation.x, y = pose.orientation.y, z = pose.orientation.z, w = pose.orientation.w;
+    float x2 = x + x, y2 = y + y, z2 = z + z;
+    float xx = x * x2, xy = x * y2, xz = x * z2;
+    float yy = y * y2, yz = y * z2, zz = z * z2;
+    float wx = w * x2, wy = w * y2, wz = w * z2;
+
+    mat[0][0] = 1.0f - (yy + zz);
+    mat[0][1] = xy + wz;
+    mat[0][2] = xz - wy;
+    mat[0][3] = 0.0f;
+
+    mat[1][0] = xy - wz;
+    mat[1][1] = 1.0f - (xx + zz);
+    mat[1][2] = yz + wx;
+    mat[1][3] = 0.0f;
+
+    mat[2][0] = xz + wy;
+    mat[2][1] = yz - wx;
+    mat[2][2] = 1.0f - (xx + yy);
+    mat[2][3] = 0.0f;
+
+    // Translation
+    mat[3][0] = -(pose.position.x * mat[0][0] + pose.position.y * mat[1][0] + pose.position.z * mat[2][0]);
+    mat[3][1] = -(pose.position.x * mat[0][1] + pose.position.y * mat[1][1] + pose.position.z * mat[2][1]);
+    mat[3][2] = -(pose.position.x * mat[0][2] + pose.position.y * mat[1][2] + pose.position.z * mat[2][2]);
+    mat[3][3] = 1.0f;
+}
+
+void VRSession::GetHeadPose(float pos[3], float rot[3]) const {
+    pos[1] = 0;
+    pos[2] = 0;
+    rot[0] = 0;
+    rot[1] = 0;
+    rot[2] = 0;
+
+    XrSpaceLocation location = { XR_TYPE_SPACE_LOCATION };
+    xrLocateSpace(mViewSpace, mAppSpace, mFrameState.predictedDisplayTime, &location);
+
+    if (location.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) {
+        pos[0] = location.pose.position.x;
+        pos[1] = location.pose.position.y;
+        pos[2] = location.pose.position.z;
+    }
+
+    if (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) {
+        XrQuaternionf q = location.pose.orientation;
+        // Convert quaternion to Euler angles (Pitch, Yaw, Roll)
+        rot[0] = atan2f(2.0f * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z); // Pitch
+        rot[1] = asinf(-2.0f * (q.x * q.z - q.w * q.y)); // Yaw
+        rot[2] = atan2f(2.0f * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z); // Roll
+    }
+}
+
+ID3D11RenderTargetView* VRSession::BeginEye(int eye) {
+    if (eye >= mSwapchains.size()) return nullptr;
+
+    XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    xrAcquireSwapchainImage(mSwapchains[eye].handle, &acquireInfo, &mCurrentImageIndices[eye]);
+
+    XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(mSwapchains[eye].handle, &waitInfo);
+
+    return mSwapchains[eye].rtvs[mCurrentImageIndices[eye]];
+}
+
+void VRSession::EndEye(int eye) {
+    if (eye >= mSwapchains.size()) return;
+
+    XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(mSwapchains[eye].handle, &releaseInfo);
 }
 
 void VRSession::EndFrame(ID3D11DeviceContext* context, ID3D11RenderTargetView* leftEyeRtv, ID3D11RenderTargetView* rightEyeRtv) {
     if (!mSessionRunning) return;
 
-    // In a real implementation, we would copy the content from the eye RTVs to the swapchain images.
-    // However, the task mentions managing RTVs for each swapchain image.
-    // For now, I'll assume the caller draws directly to the swapchain RTVs, or we copy here.
-    // The plan says "Manage RTVs for each swapchain image".
-    
-    // Actually, we need to acquire and wait for the swapchain image.
-    
-    XrViewLocateInfo viewLocateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
-    viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    viewLocateInfo.displayTime = mFrameState.predictedDisplayTime;
-    viewLocateInfo.space = mViewSpace;
-
-    uint32_t viewCount = 0;
-    XrViewState viewState = { XR_TYPE_VIEW_STATE };
-    std::vector<XrView> views(mSwapchains.size(), { XR_TYPE_VIEW });
-    xrLocateViews(mSession, &viewLocateInfo, &viewState, (uint32_t)views.size(), &viewCount, views.data());
-
     std::vector<XrCompositionLayerProjectionView> projectionViews;
 
     for (uint32_t i = 0; i < mSwapchains.size(); i++) {
-        uint32_t imageIndex = 0;
-        XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-        xrAcquireSwapchainImage(mSwapchains[i].handle, &acquireInfo, &imageIndex);
-
-        XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-        waitInfo.timeout = XR_INFINITE_DURATION;
-        xrWaitSwapchainImage(mSwapchains[i].handle, &waitInfo);
-
-        // Copy from provided RTV to swapchain RTV
-        ID3D11Resource* srcResource = nullptr;
-        ID3D11Resource* dstResource = nullptr;
-        
-        if (i == 0 && leftEyeRtv) {
-            leftEyeRtv->GetResource(&srcResource);
-            mSwapchains[i].rtvs[imageIndex]->GetResource(&dstResource);
-            context->CopyResource(dstResource, srcResource);
-        } else if (i == 1 && rightEyeRtv) {
-            rightEyeRtv->GetResource(&srcResource);
-            mSwapchains[i].rtvs[imageIndex]->GetResource(&dstResource);
-            context->CopyResource(dstResource, srcResource);
-        }
-
-        if (srcResource) srcResource->Release();
-        if (dstResource) dstResource->Release();
-
-        XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-        xrReleaseSwapchainImage(mSwapchains[i].handle, &releaseInfo);
-
         XrCompositionLayerProjectionView projectionView = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
-        projectionView.pose = views[i].pose;
-        projectionView.fov = views[i].fov;
+        projectionView.pose = mViews[i].pose;
+        projectionView.fov = mViews[i].fov;
         projectionView.subImage.swapchain = mSwapchains[i].handle;
         projectionView.subImage.imageRect.offset = { 0, 0 };
         projectionView.subImage.imageRect.extent = { (int32_t)mSwapchains[i].width, (int32_t)mSwapchains[i].height };

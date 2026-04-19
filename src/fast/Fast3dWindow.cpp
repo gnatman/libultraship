@@ -3,6 +3,7 @@
 #include "ship/Context.h"
 #include "ship/config/Config.h"
 #include "ship/controller/controldeck/ControlDeck.h"
+#include "ship/controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 #include "ship/config/ConsoleVariable.h"
 #include "fast/interpreter.h"
 #include "fast/backends/gfx_sdl.h"
@@ -134,7 +135,9 @@ void Fast3dWindow::InitWindowManager() {
 #ifdef ENABLE_DX11
         case Ship::WindowBackend::FAST3D_DXGI_DX11:
             mWindowManagerApi = new GfxWindowBackendDXGI();
+            mVRSession = std::make_shared<VRSession>();
             mRenderingApi = new GfxRenderingAPIDX11(static_cast<GfxWindowBackendDXGI*>(mWindowManagerApi));
+            static_cast<GfxRenderingAPIDX11*>(mRenderingApi)->SetVRSession(mVRSession);
             break;
 #endif
 #ifdef ENABLE_OPENGL
@@ -161,6 +164,10 @@ void Fast3dWindow::SetTextureFilter(FilteringMode filteringMode) {
 
 void Fast3dWindow::EnableSRGBMode() {
     mInterpreter->mRapi->SetSrgbMode();
+}
+
+void Fast3dWindow::SetVREyeRT(void* rtv) {
+    mRenderingApi->SetVREyeRT(rtv);
 }
 
 void Fast3dWindow::SetRendererUCode(UcodeHandlers ucode) {
@@ -216,19 +223,17 @@ void Fast3dWindow::HandleEvents() {
     mWindowManagerApi->HandleEvents();
 
     if (Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger("gMockVREnabled", 0)) {
-        // Mock VR movement with mouse when Alt is held
-        bool altHeld = Ship::Context::GetInstance()->GetControlDeck()->ProcessKeyboardEvent(
-                           Ship::KbEventType::LUS_KB_EVENT_KEY_DOWN, Ship::KbScancode::LUS_KB_LALT) ||
-                       Ship::Context::GetInstance()->GetControlDeck()->ProcessKeyboardEvent(
-                           Ship::KbEventType::LUS_KB_EVENT_KEY_DOWN, Ship::KbScancode::LUS_KB_RALT);
-
-        if (altHeld) {
+        if (IsAltHeld()) {
             Ship::Coords delta = GetMouseDelta();
             float sensitivity = 0.005f;
             mMockPose.rot[1] -= delta.x * sensitivity; // Yaw
             mMockPose.rot[0] -= delta.y * sensitivity; // Pitch
         }
     }
+}
+
+bool Fast3dWindow::IsAltHeld() {
+    return KeyDown(Ship::KbScancode::LUS_KB_ALT);
 }
 
 void Fast3dWindow::SetCursorVisibility(bool visible) {
@@ -350,6 +355,12 @@ uintptr_t Fast3dWindow::GetGfxFrameBuffer() {
 }
 
 Ship::VRPose Fast3dWindow::GetVRPose() {
+    if (mVRSession && mVRSession->IsActive()) {
+        float pos[3];
+        float rot[3];
+        mVRSession->GetHeadPose(pos, rot);
+        return { {pos[0], pos[1], pos[2]}, {rot[0], rot[1], rot[2]} };
+    }
     return mMockPose;
 }
 
