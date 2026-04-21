@@ -7,6 +7,7 @@
 #include "ship/controller/controldevice/controller/mapping/mouse/MouseWheelToButtonMapping.h"
 #include "ship/controller/controldevice/controller/mapping/sdl/SDLButtonToButtonMapping.h"
 #include "ship/controller/controldevice/controller/mapping/sdl/SDLAxisDirectionToButtonMapping.h"
+#include "ship/controller/controldevice/controller/mapping/sdl/WheelPedalMapping.h"
 #include "ship/controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 #include "ship/controller/controldevice/controller/mapping/mouse/WheelHandler.h"
 #include "ship/controller/controldeck/ControlDeck.h"
@@ -24,6 +25,27 @@ std::shared_ptr<ControllerButtonMapping> ButtonMappingFactory::CreateButtonMappi
         Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(mappingCvarKey.c_str());
         Ship::Context::GetInstance()->GetConsoleVariables()->Save();
         return nullptr;
+    }
+
+    if (mappingClass == "WheelPedalMapping") {
+        int32_t sdlControllerAxis = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(
+            StringHelper::Sprintf("%s.SDLControllerAxis", mappingCvarKey.c_str()).c_str(), -1);
+        int32_t axisDirection = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(
+            StringHelper::Sprintf("%s.AxisDirection", mappingCvarKey.c_str()).c_str(), 0);
+        float threshold = Ship::Context::GetInstance()->GetConsoleVariables()->GetFloat(
+            StringHelper::Sprintf("%s.Threshold", mappingCvarKey.c_str()).c_str(), 0.25f);
+        bool inverted = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(
+            StringHelper::Sprintf("%s.Inverted", mappingCvarKey.c_str()).c_str(), 0);
+
+        if (sdlControllerAxis == -1 || (axisDirection != -1 && axisDirection != 1)) {
+            // something about this mapping is invalid
+            Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(mappingCvarKey.c_str());
+            Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+            return nullptr;
+        }
+
+        return std::make_shared<WheelPedalMapping>(portIndex, bitmask, sdlControllerAxis, axisDirection, threshold,
+                                                   inverted);
     }
 
     if (mappingClass == "SDLButtonToButtonMapping") {

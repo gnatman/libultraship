@@ -102,6 +102,8 @@ class GfxRenderingAPIOGL final : public GfxRenderingAPI {
     FilteringMode GetTextureFilter() override;
     void SetSrgbMode() override;
     ImTextureID GetTextureById(int id) override;
+    void SetVREyeRT(void* rtv) override;
+    void DrawVignette(float intensity) override;
 
   private:
     void SetUniforms(ShaderProgram* prg) const;

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef ULTRA64_MOTOR_H
 #define ULTRA64_MOTOR_H
 

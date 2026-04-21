@@ -5,6 +5,7 @@
 
 #include "ship/controller/controldevice/controller/mapping/sdl/SDLButtonToAxisDirectionMapping.h"
 #include "ship/controller/controldevice/controller/mapping/sdl/SDLAxisDirectionToAxisDirectionMapping.h"
+#include "ship/controller/controldevice/controller/mapping/sdl/WheelAxisMapping.h"
 
 #include "ship/config/ConsoleVariable.h"
 #include "ship/utils/StringHelper.h"
@@ -22,6 +23,32 @@ AxisDirectionMappingFactory::CreateAxisDirectionMappingFromConfig(uint8_t portIn
     const std::string mappingCvarKey = CVAR_PREFIX_CONTROLLERS ".AxisDirectionMappings." + id;
     const std::string mappingClass = Ship::Context::GetInstance()->GetConsoleVariables()->GetString(
         StringHelper::Sprintf("%s.AxisDirectionMappingClass", mappingCvarKey.c_str()).c_str(), "");
+
+    if (mappingClass == "WheelAxisMapping") {
+        int32_t direction = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(
+            StringHelper::Sprintf("%s.Direction", mappingCvarKey.c_str()).c_str(), -1);
+        int32_t sdlControllerAxis = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(
+            StringHelper::Sprintf("%s.SDLControllerAxis", mappingCvarKey.c_str()).c_str(), -1);
+        int32_t axisDirection = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(
+            StringHelper::Sprintf("%s.AxisDirection", mappingCvarKey.c_str()).c_str(), 0);
+        float linearity = Ship::Context::GetInstance()->GetConsoleVariables()->GetFloat(
+            StringHelper::Sprintf("%s.Linearity", mappingCvarKey.c_str()).c_str(), 1.0f);
+        float sensitivity = Ship::Context::GetInstance()->GetConsoleVariables()->GetFloat(
+            StringHelper::Sprintf("%s.Sensitivity", mappingCvarKey.c_str()).c_str(), 1.0f);
+        float deadzone = Ship::Context::GetInstance()->GetConsoleVariables()->GetFloat(
+            StringHelper::Sprintf("%s.Deadzone", mappingCvarKey.c_str()).c_str(), 0.0f);
+
+        if ((direction != LEFT && direction != RIGHT && direction != UP && direction != DOWN) ||
+            sdlControllerAxis == -1 || (axisDirection != NEGATIVE && axisDirection != POSITIVE)) {
+            // something about this mapping is invalid
+            Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(mappingCvarKey.c_str());
+            Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+            return nullptr;
+        }
+
+        return std::make_shared<WheelAxisMapping>(portIndex, stickIndex, static_cast<Direction>(direction),
+                                                  sdlControllerAxis, axisDirection, linearity, sensitivity, deadzone);
+    }
 
     if (mappingClass == "SDLAxisDirectionToAxisDirectionMapping") {
         int32_t direction = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(

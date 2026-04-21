@@ -8,6 +8,7 @@
 #define XR_USE_GRAPHICS_API_D3D11
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include <spdlog/spdlog.h>
 
 namespace Fast {
 
@@ -19,17 +20,23 @@ VRSession::~VRSession() {
 }
 
 bool VRSession::Init(ID3D11Device* device) {
-    if (!CreateInstance()) return false;
-    if (!CreateSession(device)) return false;
-    if (!CreateReferenceSpaces()) return false;
-    if (!CreateSwapchain()) return false;
+    SPDLOG_INFO("Initializing VRSession");
+    if (!CreateInstance()) { SPDLOG_ERROR("Failed to create OpenXR Instance"); return false; }
+    if (!CreateSession(device)) { SPDLOG_ERROR("Failed to create OpenXR Session"); return false; }
+    if (!CreateReferenceSpaces()) { SPDLOG_ERROR("Failed to create OpenXR Reference Spaces"); return false; }
+    if (!CreateSwapchain()) { SPDLOG_ERROR("Failed to create OpenXR Swapchain"); return false; }
+    SPDLOG_INFO("VRSession initialized successfully");
     return true;
 }
 
 void VRSession::Shutdown() {
+    SPDLOG_INFO("Shutting down VRSession");
     for (auto& bundle : mSwapchains) {
         for (auto rtv : bundle.rtvs) {
             rtv->Release();
+        }
+        if (bundle.dsv) {
+            bundle.dsv->Release();
         }
         xrDestroySwapchain(bundle.handle);
     }
@@ -38,32 +45,109 @@ void VRSession::Shutdown() {
     if (mAppSpace != XR_NULL_HANDLE) xrDestroySpace(mAppSpace);
     if (mViewSpace != XR_NULL_HANDLE) xrDestroySpace(mViewSpace);
     if (mSession != XR_NULL_HANDLE) xrDestroySession(mSession);
+
+    if (mDebugMessenger != XR_NULL_HANDLE) {
+        PFN_xrDestroyDebugUtilsMessengerEXT pfnDestroyDebugUtilsMessengerEXT;
+        xrGetInstanceProcAddr(mInstance, "xrDestroyDebugUtilsMessengerEXT", (PFN_xrVoidFunction*)&pfnDestroyDebugUtilsMessengerEXT);
+        if (pfnDestroyDebugUtilsMessengerEXT) {
+            pfnDestroyDebugUtilsMessengerEXT(mDebugMessenger);
+        }
+    }
+
     if (mInstance != XR_NULL_HANDLE) xrDestroyInstance(mInstance);
     
     mAppSpace = XR_NULL_HANDLE;
     mViewSpace = XR_NULL_HANDLE;
     mSession = XR_NULL_HANDLE;
     mInstance = XR_NULL_HANDLE;
+    mDebugMessenger = XR_NULL_HANDLE;
+}
+
+static XRAPI_ATTR XrBool32 XRAPI_CALL xrDebugCallback(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, const XrDebugUtilsMessengerCallbackDataEXT* callbackData, void* userData) {
+    if (severity >= XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        SPDLOG_ERROR("OpenXR Debug: {}", callbackData->message);
+    } else if (severity >= XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+        SPDLOG_WARN("OpenXR Debug: {}", callbackData->message);
+    } else {
+        SPDLOG_INFO("OpenXR Debug: {}", callbackData->message);
+    }
+    return XR_FALSE;
 }
 
 bool VRSession::CreateInstance() {
-    std::vector<const char*> extensions = { XR_KHR_D3D11_ENABLE_EXTENSION_NAME };
+    // Query supported extensions
+    uint32_t extensionCount = 0;
+    xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
+    std::vector<XrExtensionProperties> supportedExtensions(extensionCount, { XR_TYPE_EXTENSION_PROPERTIES });
+    xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, supportedExtensions.data());
+
+    SPDLOG_INFO("OpenXR Supported Extensions:");
+    for (const auto& ext : supportedExtensions) {
+        SPDLOG_INFO("  - {}", ext.extensionName);
+    }
+
+    auto isExtensionSupported = [&](const char* name) {
+        for (const auto& ext : supportedExtensions) {
+            if (strcmp(ext.extensionName, name) == 0) return true;
+        }
+        return false;
+    };
+
+    std::vector<const char*> requestedExtensions;
+    if (isExtensionSupported(XR_KHR_D3D11_ENABLE_EXTENSION_NAME)) {
+        requestedExtensions.push_back(XR_KHR_D3D11_ENABLE_EXTENSION_NAME);
+    } else {
+        SPDLOG_ERROR("OpenXR: Runtime does not support D3D11 extension");
+        return false;
+    }
+
+    // Depth extension is optional for now
+    if (isExtensionSupported(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME)) {
+        requestedExtensions.push_back(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME);
+    }
+
+    bool debugSupported = isExtensionSupported(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    if (debugSupported) {
+        requestedExtensions.push_back(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
     
     XrInstanceCreateInfo createInfo = { XR_TYPE_INSTANCE_CREATE_INFO };
     strcpy(createInfo.applicationInfo.applicationName, "VRmicelliKart");
-    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
-    createInfo.enabledExtensionCount = (uint32_t)extensions.size();
-    createInfo.enabledExtensionNames = extensions.data();
+    createInfo.applicationInfo.apiVersion = XR_API_VERSION_1_0; // Use 1.0 for max compatibility
+    createInfo.enabledExtensionCount = (uint32_t)requestedExtensions.size();
+    createInfo.enabledExtensionNames = requestedExtensions.data();
+
+    XrDebugUtilsMessengerCreateInfoEXT debugInfo = { XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+    if (debugSupported) {
+        debugInfo.messageSeverities = XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                      XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                      XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                      XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debugInfo.messageTypes = XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                 XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                 XR_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT |
+                                 XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
+        debugInfo.userCallback = xrDebugCallback;
+        createInfo.next = &debugInfo;
+    }
 
     XrResult res = xrCreateInstance(&createInfo, &mInstance);
     if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrCreateInstance failed: {}", (int)res);
         return false;
+    }
+
+    if (debugSupported) {
+        PFN_xrCreateDebugUtilsMessengerEXT pfnCreateDebugUtilsMessengerEXT;
+        xrGetInstanceProcAddr(mInstance, "xrCreateDebugUtilsMessengerEXT", (PFN_xrVoidFunction*)&pfnCreateDebugUtilsMessengerEXT);
+        pfnCreateDebugUtilsMessengerEXT(mInstance, &debugInfo, &mDebugMessenger);
     }
 
     XrSystemGetInfo systemInfo = { XR_TYPE_SYSTEM_GET_INFO };
     systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     res = xrGetSystem(mInstance, &systemInfo, &mSystemId);
     if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrGetSystem failed: {}", (int)res);
         return false;
     }
 
@@ -71,6 +155,16 @@ bool VRSession::CreateInstance() {
 }
 
 bool VRSession::CreateSession(ID3D11Device* device) {
+    // We MUST query graphics requirements before creating a session using that graphics API
+    PFN_xrGetD3D11GraphicsRequirementsKHR pfnGetD3D11GraphicsRequirementsKHR = nullptr;
+    xrGetInstanceProcAddr(mInstance, "xrGetD3D11GraphicsRequirementsKHR", (PFN_xrVoidFunction*)&pfnGetD3D11GraphicsRequirementsKHR);
+    
+    if (pfnGetD3D11GraphicsRequirementsKHR) {
+        XrGraphicsRequirementsD3D11KHR graphicsRequirements = { XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR };
+        pfnGetD3D11GraphicsRequirementsKHR(mInstance, mSystemId, &graphicsRequirements);
+        SPDLOG_INFO("OpenXR: D3D11 Graphics Requirements met");
+    }
+
     XrGraphicsBindingD3D11KHR graphicsBinding = { XR_TYPE_GRAPHICS_BINDING_D3D11_KHR };
     graphicsBinding.device = device;
 
@@ -80,6 +174,7 @@ bool VRSession::CreateSession(ID3D11Device* device) {
 
     XrResult res = xrCreateSession(mInstance, &createInfo, &mSession);
     if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrCreateSession failed: {}", (int)res);
         return false;
     }
 
@@ -131,6 +226,7 @@ bool VRSession::CreateSwapchain() {
         SwapchainBundle bundle;
         bundle.width = swapchainInfo.width;
         bundle.height = swapchainInfo.height;
+        bundle.dsv = nullptr;
         xrCreateSwapchain(mSession, &swapchainInfo, &bundle.handle);
 
         uint32_t imageCount = 0;
@@ -150,9 +246,28 @@ bool VRSession::CreateSwapchain() {
             device->CreateRenderTargetView(bundle.images[j].texture, &rtvDesc, &rtv);
             bundle.rtvs.push_back(rtv);
         }
+
+        // Create Depth Buffer for this swapchain
+        D3D11_TEXTURE2D_DESC depthDesc = {};
+        depthDesc.Width = bundle.width;
+        depthDesc.Height = bundle.height;
+        depthDesc.MipLevels = 1;
+        depthDesc.ArraySize = 1;
+        depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        depthDesc.SampleDesc.Count = 1;
+        depthDesc.SampleDesc.Quality = 0;
+        depthDesc.Usage = D3D11_USAGE_DEFAULT;
+        depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        
+        ID3D11Texture2D* depthTex = nullptr;
+        device->CreateTexture2D(&depthDesc, nullptr, &depthTex);
+        device->CreateDepthStencilView(depthTex, nullptr, &bundle.dsv);
+        depthTex->Release();
+
         device->Release();
 
         mSwapchains.push_back(bundle);
+        SPDLOG_INFO("Created Swapchain {} ({}x{})", i, bundle.width, bundle.height);
     }
 
     return true;
@@ -164,26 +279,47 @@ bool VRSession::BeginFrame() {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             XrEventDataSessionStateChanged* stateChanged = (XrEventDataSessionStateChanged*)&event;
             mSessionState = stateChanged->state;
+            SPDLOG_INFO("OpenXR Session State changed to {}", (int)mSessionState);
             if (mSessionState == XR_SESSION_STATE_READY) {
                 XrSessionBeginInfo beginInfo = { XR_TYPE_SESSION_BEGIN_INFO };
                 beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 xrBeginSession(mSession, &beginInfo);
                 mSessionRunning = true;
+                SPDLOG_INFO("OpenXR Session Started");
             } else if (mSessionState == XR_SESSION_STATE_STOPPING) {
                 xrEndSession(mSession);
+                mSessionRunning = false;
+                SPDLOG_INFO("OpenXR Session Stopped");
+            } else if (mSessionState == XR_SESSION_STATE_LOSS_PENDING || mSessionState == XR_SESSION_STATE_EXITING) {
                 mSessionRunning = false;
             }
         }
         event = { XR_TYPE_EVENT_DATA_BUFFER };
     }
 
-    if (!mSessionRunning) return false;
+    if (!mSessionRunning) {
+        return false;
+    }
 
     XrFrameWaitInfo waitInfo = { XR_TYPE_FRAME_WAIT_INFO };
-    xrWaitFrame(mSession, &waitInfo, &mFrameState);
+    XrResult res = xrWaitFrame(mSession, &waitInfo, &mFrameState);
+    if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrWaitFrame failed: {}", (int)res);
+        return false;
+    }
 
     XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };
-    xrBeginFrame(mSession, &beginInfo);
+    res = xrBeginFrame(mSession, &beginInfo);
+    if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrBeginFrame failed: {}", (int)res);
+        return false;
+    }
+
+    mFrameStarted = true;
+
+    if (!mFrameState.shouldRender) {
+        return false;
+    }
 
     // Locate views for the current frame
     XrViewLocateInfo viewLocateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
@@ -194,7 +330,10 @@ bool VRSession::BeginFrame() {
     uint32_t viewCount = 0;
     XrViewState viewState = { XR_TYPE_VIEW_STATE };
     mViews.resize(mSwapchains.size(), { XR_TYPE_VIEW });
-    xrLocateViews(mSession, &viewLocateInfo, &viewState, (uint32_t)mViews.size(), &viewCount, mViews.data());
+    res = xrLocateViews(mSession, &viewLocateInfo, &viewState, (uint32_t)mViews.size(), &viewCount, mViews.data());
+    if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrLocateViews failed: {}", (int)res);
+    }
 
     return true;
 }
@@ -267,11 +406,10 @@ void VRSession::GetViewMatrix(int eye, float mat[4][4]) const {
 }
 
 void VRSession::GetHeadPose(float pos[3], float rot[3]) const {
-    pos[1] = 0;
-    pos[2] = 0;
-    rot[0] = 0;
-    rot[1] = 0;
-    rot[2] = 0;
+    pos[0] = 0; pos[1] = 0; pos[2] = 0;
+    rot[0] = 0; rot[1] = 0; rot[2] = 0;
+
+    if (!mSessionRunning) return;
 
     XrSpaceLocation location = { XR_TYPE_SPACE_LOCATION };
     xrLocateSpace(mViewSpace, mAppSpace, mFrameState.predictedDisplayTime, &location);
@@ -286,60 +424,78 @@ void VRSession::GetHeadPose(float pos[3], float rot[3]) const {
         XrQuaternionf q = location.pose.orientation;
         // Convert quaternion to Euler angles (Pitch, Yaw, Roll)
         rot[0] = atan2f(2.0f * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z); // Pitch
-        rot[1] = asinf(-2.0f * (q.x * q.z - q.w * q.y)); // Yaw
+        rot[1] = asinf(std::clamp(-2.0f * (q.x * q.z - q.w * q.y), -1.0f, 1.0f)); // Yaw
         rot[2] = atan2f(2.0f * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z); // Roll
     }
 }
 
 ID3D11RenderTargetView* VRSession::BeginEye(int eye) {
-    if (eye >= mSwapchains.size()) return nullptr;
+    if (!mSessionRunning || eye >= (int)mSwapchains.size()) return nullptr;
 
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     xrAcquireSwapchainImage(mSwapchains[eye].handle, &acquireInfo, &mCurrentImageIndices[eye]);
 
     XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-    waitInfo.timeout = XR_INFINITE_DURATION;
-    xrWaitSwapchainImage(mSwapchains[eye].handle, &waitInfo);
+    waitInfo.timeout = 100000000; // 100ms timeout to prevent hard lockups
+    XrResult res = xrWaitSwapchainImage(mSwapchains[eye].handle, &waitInfo);
+    if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrWaitSwapchainImage failed: {}", (int)res);
+        return nullptr;
+    }
 
     return mSwapchains[eye].rtvs[mCurrentImageIndices[eye]];
 }
 
 void VRSession::EndEye(int eye) {
-    if (eye >= mSwapchains.size()) return;
+    if (!mSessionRunning || eye >= (int)mSwapchains.size()) return;
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(mSwapchains[eye].handle, &releaseInfo);
 }
 
+ID3D11DepthStencilView* VRSession::GetEyeDSV(int eye) const {
+    if (eye >= (int)mSwapchains.size()) return nullptr;
+    return mSwapchains[eye].dsv;
+}
+
 void VRSession::EndFrame(ID3D11DeviceContext* context, ID3D11RenderTargetView* leftEyeRtv, ID3D11RenderTargetView* rightEyeRtv) {
-    if (!mSessionRunning) return;
-
-    std::vector<XrCompositionLayerProjectionView> projectionViews;
-
-    for (uint32_t i = 0; i < mSwapchains.size(); i++) {
-        XrCompositionLayerProjectionView projectionView = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
-        projectionView.pose = mViews[i].pose;
-        projectionView.fov = mViews[i].fov;
-        projectionView.subImage.swapchain = mSwapchains[i].handle;
-        projectionView.subImage.imageRect.offset = { 0, 0 };
-        projectionView.subImage.imageRect.extent = { (int32_t)mSwapchains[i].width, (int32_t)mSwapchains[i].height };
-        projectionViews.push_back(projectionView);
-    }
-
-    XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-    layer.space = mAppSpace;
-    layer.viewCount = (uint32_t)projectionViews.size();
-    layer.views = projectionViews.data();
-
-    XrCompositionLayerBaseHeader* layers[] = { (XrCompositionLayerBaseHeader*)&layer };
+    if (!mSessionRunning || !mFrameStarted) return;
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = mFrameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    endInfo.layerCount = 1;
-    endInfo.layers = layers;
 
-    xrEndFrame(mSession, &endInfo);
+    if (mFrameState.shouldRender) {
+        std::vector<XrCompositionLayerProjectionView> projectionViews;
+        projectionViews.reserve(mSwapchains.size());
+
+        for (uint32_t i = 0; i < mSwapchains.size(); i++) {
+            XrCompositionLayerProjectionView projectionView = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
+            projectionView.pose = mViews[i].pose;
+            projectionView.fov = mViews[i].fov;
+            projectionView.subImage.swapchain = mSwapchains[i].handle;
+            projectionView.subImage.imageRect.offset = { 0, 0 };
+            projectionView.subImage.imageRect.extent = { (int32_t)mSwapchains[i].width, (int32_t)mSwapchains[i].height };
+            projectionViews.push_back(projectionView);
+        }
+
+        XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+        layer.space = mAppSpace;
+        layer.viewCount = (uint32_t)projectionViews.size();
+        layer.views = projectionViews.data();
+
+        XrCompositionLayerBaseHeader* layers[] = { (XrCompositionLayerBaseHeader*)&layer };
+        endInfo.layerCount = 1;
+        endInfo.layers = layers;
+
+        xrEndFrame(mSession, &endInfo);
+    } else {
+        endInfo.layerCount = 0;
+        endInfo.layers = nullptr;
+        xrEndFrame(mSession, &endInfo);
+    }
+
+    mFrameStarted = false;
 }
 
 } // namespace Fast

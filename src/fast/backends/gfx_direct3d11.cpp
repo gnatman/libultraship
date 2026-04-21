@@ -32,6 +32,7 @@
 #include "ship/window/Window.h"
 
 #include "fast/backends/gfx_rendering_api.h"
+#include "fast/backends/VRSession.h"
 #include "fast/interpreter.h"
 
 #include <prism/processor.h>
@@ -209,6 +210,10 @@ void GfxRenderingAPIDX11::Init() {
 
     mWindowBackend->CreateFactoryAndDevice(DEBUG_D3D, 11, this, CreateDeviceFunc);
 
+    if (mVRSession) {
+        mVRSession->Init(mDevice.Get());
+    }
+
     // Create the swap chain
     mWindowBackend->CreateSwapChain(mDevice.Get(), [this]() {
         mFrameBuffers[0].render_target_view.Reset();
@@ -351,6 +356,127 @@ void CSMain(uint3 DTid : SV_DispatchThreadID) {
     Ship::GuiWindowInitData window_impl;
     window_impl.Dx11 = { mWindowBackend->GetWindowHandle(), mContext.Get(), mDevice.Get() };
     Ship::Context::GetInstance()->GetWindow()->GetGui()->Init(window_impl);
+
+    // Create vignette resources
+    const char* vignette_shader_source = R"(
+struct VS_INPUT {
+    float4 pos : POSITION;
+    float2 uv : TEXCOORD;
+};
+struct PS_INPUT {
+    float4 pos : SV_POSITION;
+    float2 uv : TEXCOORD;
+};
+PS_INPUT VSMain(VS_INPUT input) {
+    PS_INPUT output;
+    output.pos = input.pos;
+    output.uv = input.uv;
+    return output;
+}
+cbuffer Params : register(b0) {
+    float opacity;
+    float3 padding;
+};
+float4 PSMain(PS_INPUT input) : SV_TARGET {
+    float2 d = input.uv - 0.5f;
+    float dist = length(d) * 2.0f;
+    float vign = smoothstep(0.4f, 1.0f, dist);
+    return float4(0, 0, 0, vign * opacity);
+}
+)";
+
+    ComPtr<ID3DBlob> vs_blob, ps_blob;
+    hr = mD3dCompile(vignette_shader_source, strlen(vignette_shader_source), nullptr, nullptr, nullptr, "VSMain",
+                     "vs_4_0", compile_flags, 0, vs_blob.GetAddressOf(), error_blob.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) {
+        char* err = (char*)error_blob->GetBufferPointer();
+        MessageBoxA(mWindowBackend->GetWindowHandle(), err, "Error", MB_OK | MB_ICONERROR);
+        throw hr;
+    }
+    ThrowIfFailed(mDevice->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr,
+                                               mVignetteVertexShader.GetAddressOf()));
+
+    hr = mD3dCompile(vignette_shader_source, strlen(vignette_shader_source), nullptr, nullptr, nullptr, "PSMain",
+                     "ps_4_0", compile_flags, 0, ps_blob.GetAddressOf(), error_blob.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) {
+        char* err = (char*)error_blob->GetBufferPointer();
+        MessageBoxA(mWindowBackend->GetWindowHandle(), err, "Error", MB_OK | MB_ICONERROR);
+        throw hr;
+    }
+    ThrowIfFailed(mDevice->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr,
+                                              mVignettePixelShader.GetAddressOf()));
+
+    D3D11_INPUT_ELEMENT_DESC ied_vign[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+    };
+    ThrowIfFailed(mDevice->CreateInputLayout(ied_vign, 2, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(),
+                                             mVignetteInputLayout.GetAddressOf()));
+
+    float vignette_vertices[] = { -1, -1, 0, 1, 0, 1, 1, -1, 0, 1, 1, 1, -1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0 };
+    D3D11_BUFFER_DESC vbd = {};
+    vbd.Usage = D3D11_USAGE_IMMUTABLE;
+    vbd.ByteWidth = sizeof(vignette_vertices);
+    vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA sd = { vignette_vertices };
+    ThrowIfFailed(mDevice->CreateBuffer(&vbd, &sd, mVignetteVertexBuffer.GetAddressOf()));
+
+    D3D11_BLEND_DESC bd_vign = {};
+    bd_vign.RenderTarget[0].BlendEnable = true;
+    bd_vign.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    bd_vign.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    bd_vign.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    bd_vign.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    bd_vign.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    bd_vign.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    bd_vign.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    ThrowIfFailed(mDevice->CreateBlendState(&bd_vign, mVignetteBlendState.GetAddressOf()));
+
+    D3D11_BUFFER_DESC cbd_vign = {};
+    cbd_vign.Usage = D3D11_USAGE_DYNAMIC;
+    cbd_vign.ByteWidth = 16;
+    cbd_vign.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbd_vign.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    ThrowIfFailed(mDevice->CreateBuffer(&cbd_vign, nullptr, mVignetteParamsCb.GetAddressOf()));
+}
+
+void GfxRenderingAPIDX11::DrawVignette(float opacity) {
+    if (opacity <= 0.0f) {
+        return;
+    }
+
+    D3D11_MAPPED_SUBRESOURCE ms;
+    mContext->Map(mVignetteParamsCb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    struct Params {
+        float opacity;
+        float padding[3];
+    };
+    Params* p = (Params*)ms.pData;
+    p->opacity = opacity;
+    mContext->Unmap(mVignetteParamsCb.Get(), 0);
+
+    mContext->IASetInputLayout(mVignetteInputLayout.Get());
+    uint32_t stride = 24;
+    uint32_t offset = 0;
+    mContext->IASetVertexBuffers(0, 1, mVignetteVertexBuffer.GetAddressOf(), &stride, &offset);
+    mContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+    mContext->VSSetShader(mVignetteVertexShader.Get(), nullptr, 0);
+    mContext->PSSetShader(mVignettePixelShader.Get(), nullptr, 0);
+    mContext->PSSetConstantBuffers(0, 1, mVignetteParamsCb.GetAddressOf());
+
+    mContext->OMSetBlendState(mVignetteBlendState.Get(), nullptr, 0xFFFFFFFF);
+
+    // Disable depth testing for vignette
+    mContext->OMSetDepthStencilState(nullptr, 0);
+
+    mContext->Draw(4, 0);
+
+    // Reset state for next draw
+    mLastShaderProgram = nullptr;
+    mLastVertexBufferStride = 0;
+    mLastBlendState.Reset();
+    mLastPrimitaveTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 }
 
 int GfxRenderingAPIDX11::GetMaxTextureSize() {
@@ -804,6 +930,9 @@ void GfxRenderingAPIDX11::StartFrame() {
 }
 
 void GfxRenderingAPIDX11::EndFrame() {
+    if (mVRSession) {
+        mVRSession->EndFrame(mContext.Get(), nullptr, nullptr);
+    }
     mContext->Flush();
 }
 
@@ -902,12 +1031,23 @@ void GfxRenderingAPIDX11::UpdateFramebufferParameters(int fb_id, uint32_t width,
     fb.msaa_level = msaa_level;
 }
 
+void GfxRenderingAPIDX11::SetVREyeRT(void* rtv) {
+    mVREyeRT = (ID3D11RenderTargetView*)rtv;
+    if (mVRSession && mVREyeRT) {
+        int eye = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger("gVREye", 0);
+        mVREyeDSV = mVRSession->GetEyeDSV(eye);
+    } else {
+        mVREyeDSV = nullptr;
+    }
+}
+
 void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     FramebufferDX11& fb = mFrameBuffers[fb_id];
     mRenderTargetHeight = mTextures[fb.texture_id].height;
 
-    mContext->OMSetRenderTargets(1, fb.render_target_view.GetAddressOf(),
-                                 fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    ID3D11RenderTargetView* rtv = mVREyeRT ? mVREyeRT : fb.render_target_view.Get();
+    ID3D11DepthStencilView* dsv = mVREyeDSV ? mVREyeDSV : (fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    mContext->OMSetRenderTargets(1, &rtv, dsv);
 
     mCurrentFramebuffer = fb_id;
 
@@ -921,15 +1061,25 @@ void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     memcpy(ms.pData, &mPerFrameCbData, sizeof(PerFrameCB));
     mContext->Unmap(mPerFrameCb.Get(), 0);
 }
-
 void GfxRenderingAPIDX11::ClearFramebuffer(bool color, bool depth) {
-    FramebufferDX11& fb = mFrameBuffers[mCurrentFramebuffer];
-    if (color) {
-        const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        mContext->ClearRenderTargetView(fb.render_target_view.Get(), clearColor);
+    ID3D11RenderTargetView* rtv = mVREyeRT;
+    ID3D11DepthStencilView* dsv = mVREyeDSV;
+
+    if (!rtv) {
+        FramebufferDX11& fb = mFrameBuffers[mCurrentFramebuffer];
+        rtv = fb.render_target_view.Get();
+        if (fb.has_depth_buffer) {
+            dsv = fb.depth_stencil_view.Get();
+        }
     }
-    if (depth && fb.has_depth_buffer) {
-        mContext->ClearDepthStencilView(fb.depth_stencil_view.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+    if (color && rtv) {
+        const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        mContext->ClearRenderTargetView(rtv, clearColor);
+    }
+
+    if (depth && dsv) {
+        mContext->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
     }
 }
 

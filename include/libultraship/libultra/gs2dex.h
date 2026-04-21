@@ -1,3 +1,4 @@
+#pragma once
 #ifndef GS2DEX_H
 #define GS2DEX_H
 

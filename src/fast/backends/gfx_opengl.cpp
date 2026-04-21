@@ -1094,6 +1094,14 @@ void GfxRenderingAPIOGL::SetSrgbMode() {
 ImTextureID GfxRenderingAPIOGL::GetTextureById(int id) {
     return reinterpret_cast<ImTextureID>(id);
 }
+
+void GfxRenderingAPIOGL::SetVREyeRT(void* rtv) {
+    // Not implemented for OpenGL
+}
+
+void GfxRenderingAPIOGL::DrawVignette(float intensity) {
+    // Not implemented for OpenGL
+}
 } // namespace Fast
 #endif
 

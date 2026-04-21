@@ -208,12 +208,23 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
     // Setup of the backend frames and draw initial Window and GUI menus
     gui->StartDraw();
     
-    if (mVRSession && mVRSession->IsActive()) {
+    bool shouldRenderVR = false;
+    if (mVRSession) {
+        shouldRenderVR = mVRSession->BeginFrame();
+    }
+
+    if (mVRSession && mVRSession->IsActive() && shouldRenderVR) {
+        mInterpreter->SetVRActive(true);
         for (int eye = 0; eye < 2; eye++) {
             void* eyeRtv = mVRSession->BeginEye(eye);
             if (eyeRtv) {
-                SetVREyeRT(eyeRtv);
+                float proj[4][4];
+                mVRSession->GetProjectionMatrix(eye, 1.0f, 10000.0f, proj);
+                mInterpreter->SetVREyeProjection(eye, proj);
+                mInterpreter->SetVREye(eye);
+
                 Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", eye);
+                SetVREyeRT(eyeRtv);
                 mInterpreter->StartFrame();
                 mInterpreter->Run(commands, mtxReplacements);
                 mVRSession->EndEye(eye);
@@ -221,6 +232,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
         }
         
         // Reset to default
+        mInterpreter->SetVRActive(false);
         SetVREyeRT(nullptr);
         Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", 0);
         

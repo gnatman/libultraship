@@ -1,8 +1,9 @@
+#pragma once
 #include "ship/controller/controldevice/controller/mapping/ControllerButtonMapping.h"
 #include "ship/controller/controldevice/controller/mapping/sdl/SDLAxisDirectionToAnyMapping.h"
 
 namespace Ship {
-class SDLAxisDirectionToButtonMapping final : public ControllerButtonMapping, public SDLAxisDirectionToAnyMapping {
+class SDLAxisDirectionToButtonMapping : public ControllerButtonMapping, public SDLAxisDirectionToAnyMapping {
   public:
     SDLAxisDirectionToButtonMapping(uint8_t portIndex, CONTROLLERBUTTONS_T bitmask, int32_t sdlControllerAxis,
                                     int32_t axisDirection);

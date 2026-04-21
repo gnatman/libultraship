@@ -3,6 +3,7 @@
 #include "ship/window/gui/Gui.h"
 #include "ship/controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 #include "FastMouseStateManager.h"
+#include "fast/backends/VRSession.h"
 
 union Gfx;
 #include "interpreter.h"
@@ -46,6 +47,7 @@ class Fast3dWindow : public Ship::Window {
     bool IsRunning() override;
     uintptr_t GetGfxFrameBuffer() override;
     Ship::VRPose GetVRPose() override;
+    bool IsAltHeld() override;
     const char* GetKeyName(int32_t scancode) override;
 
     void InitWindowManager();
@@ -57,9 +59,11 @@ class Fast3dWindow : public Ship::Window {
     void SetTextureFilter(FilteringMode filteringMode);
     void SetRendererUCode(UcodeHandlers ucode);
     void EnableSRGBMode();
+    void SetVREyeRT(void* rtv);
     bool DrawAndRunGraphicsCommands(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtxReplacements);
 
     std::weak_ptr<Interpreter> GetInterpreterWeak() const;
+    std::shared_ptr<VRSession> GetVRSession() const { return mVRSession; }
 
   protected:
     static bool KeyDown(int32_t scancode);
@@ -73,6 +77,7 @@ class Fast3dWindow : public Ship::Window {
     GfxRenderingAPI* mRenderingApi;
     GfxWindowBackend* mWindowManagerApi;
     std::shared_ptr<Interpreter> mInterpreter = nullptr;
+    std::shared_ptr<VRSession> mVRSession = nullptr;
     Ship::VRPose mMockPose = {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
 };
 } // namespace Fast

@@ -63,12 +63,14 @@ struct ShaderProgramD3D11 {
 };
 
 class GfxWindowBackendDXGI;
+class VRSession;
 
 class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
   public:
     GfxRenderingAPIDX11() = default;
     ~GfxRenderingAPIDX11() override;
     GfxRenderingAPIDX11(GfxWindowBackendDXGI* backend);
+    void SetVRSession(std::shared_ptr<VRSession> vrSession) { mVRSession = vrSession; }
     const char* GetName() override;
     int GetMaxTextureSize() override;
     GfxClipParameters GetClipParameters() override;
@@ -112,6 +114,8 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     FilteringMode GetTextureFilter() override;
     void SetSrgbMode() override;
     ImTextureID GetTextureById(int id) override;
+    void SetVREyeRT(void* rtv) override;
+    void DrawVignette(float opacity) override;
 
     PFN_D3D11_CREATE_DEVICE mDX11CreateDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mContext;
@@ -145,6 +149,13 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     Microsoft::WRL::ComPtr<ID3DBlob> mComputeShaderMsaaBlob;
     size_t mCoordBufferSize;
 
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> mVignetteVertexShader;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> mVignettePixelShader;
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> mVignetteInputLayout;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> mVignetteVertexBuffer;
+    Microsoft::WRL::ComPtr<ID3D11BlendState> mVignetteBlendState;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> mVignetteParamsCb;
+
 #if DEBUG_D3D
     Microsoft::WRL::ComPtr<ID3D11Debug> debug;
 #endif
@@ -167,6 +178,10 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     int32_t mRenderTargetHeight;
     int mCurrentFramebuffer;
     FilteringMode mCurrentFilterMode = FILTER_NONE;
+
+    std::shared_ptr<VRSession> mVRSession = nullptr;
+    ID3D11RenderTargetView* mVREyeRT = nullptr;
+    ID3D11DepthStencilView* mVREyeDSV = nullptr;
 
     // Previous states (to prevent setting states needlessly)
 

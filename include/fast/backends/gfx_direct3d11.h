@@ -1,3 +1,4 @@
+#pragma once
 #ifdef ENABLE_DX11
 
 #ifndef GFX_DIRECT3D11_H

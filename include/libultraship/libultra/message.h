@@ -1,3 +1,4 @@
+#pragma once
 #ifndef ULTRA64_MESSAGE_H
 #define ULTRA64_MESSAGE_H
 

@@ -73,11 +73,13 @@ class GfxRenderingAPI {
     GetPixelDepth(int fb_id, const std::set<std::pair<float, float>>& coordinates) = 0;
     virtual void* GetFramebufferTextureId(int fbId) = 0;
     virtual void SelectTextureFb(int fbId) = 0;
+    virtual void SetVREyeRT(void* rtv) {}
     virtual void DeleteTexture(uint32_t texId) = 0;
     virtual void SetTextureFilter(FilteringMode mode) = 0;
     virtual FilteringMode GetTextureFilter() = 0;
     virtual void SetSrgbMode() = 0;
     virtual ImTextureID GetTextureById(int id) = 0;
+    virtual void DrawVignette(float opacity) = 0;
 
   protected:
     int8_t mCurrentDepthTest = 0;

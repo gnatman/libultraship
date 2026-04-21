@@ -1,3 +1,4 @@
+#pragma once
 #ifndef ULTRA64_MBI_H
 #define ULTRA64_MBI_H
 

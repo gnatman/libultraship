@@ -157,6 +157,9 @@ class Window {
     /** @brief Returns the current VR pose if available. */
     virtual VRPose GetVRPose() = 0;
 
+    /** @brief Returns true if either Alt key is held. */
+    virtual bool IsAltHeld() = 0;
+
     /** @brief Returns the current graphics backend identifier. */
     WindowBackend GetWindowBackend();
     /** @brief Returns the list of backends available on this platform. */

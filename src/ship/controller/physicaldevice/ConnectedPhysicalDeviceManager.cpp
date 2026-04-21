@@ -1,5 +1,8 @@
 #include "ship/controller/physicaldevice/ConnectedPhysicalDeviceManager.h"
 #include <spdlog/spdlog.h>
+#ifdef _WIN32
+#include "libultraship/controller/physicaldevice/DirectInputFFBManager.h"
+#endif
 
 namespace Ship {
 ConnectedPhysicalDeviceManager::ConnectedPhysicalDeviceManager() {
@@ -104,5 +107,9 @@ void ConnectedPhysicalDeviceManager::RefreshConnectedSDLGamepads() {
             mIgnoredInstanceIds[port].insert(instanceId);
         }
     }
+
+#ifdef _WIN32
+    DirectInputFFBManager::Instance().Refresh();
+#endif
 }
 } // namespace Ship

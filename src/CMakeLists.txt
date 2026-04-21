@@ -150,6 +150,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         ENABLE_DX11
         NOMINMAX
     )
+    target_link_libraries(libultraship PRIVATE dinput8 dxguid)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
