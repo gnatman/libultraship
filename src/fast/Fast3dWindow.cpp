@@ -214,6 +214,9 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
     }
 
     if (mVRSession && mVRSession->IsActive() && shouldRenderVR) {
+        GfxDimensions backupCurDimensions = mInterpreter->mCurDimensions;
+        XYWidthHeight backupGameWindowViewport = mInterpreter->mGameWindowViewport;
+
         mInterpreter->SetVRActive(true);
         for (int eye = 0; eye < 2; eye++) {
             void* eyeRtv = mVRSession->BeginEye(eye);
@@ -222,6 +225,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 mVRSession->GetProjectionMatrix(eye, 1.0f, 10000.0f, proj);
                 mInterpreter->SetVREyeProjection(eye, proj);
                 mInterpreter->SetVREye(eye);
+                mInterpreter->SetVREyeDimensions(mVRSession->GetWidth(), mVRSession->GetHeight());
 
                 Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", eye);
                 SetVREyeRT(eyeRtv);
@@ -235,6 +239,9 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
         mInterpreter->SetVRActive(false);
         SetVREyeRT(nullptr);
         Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", 0);
+        
+        mInterpreter->mCurDimensions = backupCurDimensions;
+        mInterpreter->mGameWindowViewport = backupGameWindowViewport;
         
         mInterpreter->StartFrame();
         mInterpreter->Run(commands, mtxReplacements);

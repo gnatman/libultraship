@@ -399,8 +399,18 @@ class Interpreter {
     void SetMsaaLevel(uint32_t level);
     void GetCurDimensions(uint32_t* width, uint32_t* height);
 
-    void SetVRActive(bool active) { mVRActive = active; }
+    void SetVRActive(bool active) {
+        mVRActive = active;
+        if (!active) {
+            mVREyeWidth = 0;
+            mVREyeHeight = 0;
+        }
+    }
     void SetVREye(int eye) { mVREyeIndex = eye; }
+    void SetVREyeDimensions(uint32_t width, uint32_t height) {
+        mVREyeWidth = width;
+        mVREyeHeight = height;
+    }
     void SetVREyeProjection(int eye, float mat[4][4]) { memcpy(mVREyeProjection[eye], mat, sizeof(float) * 16); }
 
     // private: TODO make these private
@@ -490,6 +500,8 @@ class Interpreter {
     bool mVRIsOrtho = false;
     bool mVRCinemaMode = false;
     int mVREyeIndex = 0;
+    uint32_t mVREyeWidth = 0;
+    uint32_t mVREyeHeight = 0;
     float mVREyeProjection[2][4][4];
 
     RSP* mRsp;

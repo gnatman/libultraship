@@ -4782,6 +4782,18 @@ void Interpreter::StartFrame() {
     mVRCinemaMode = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger("gVRCinemaMode", 0);
     mWapi->GetDimensions(&mGfxCurrentWindowDimensions.width, &mGfxCurrentWindowDimensions.height, &mCurWindowPosX,
                          &mCurWindowPosY);
+    
+    if (mVRActive && mVREyeWidth > 0 && mVREyeHeight > 0) {
+        mGfxCurrentWindowDimensions.width = mVREyeWidth;
+        mGfxCurrentWindowDimensions.height = mVREyeHeight;
+        mCurDimensions.width = mVREyeWidth;
+        mCurDimensions.height = mVREyeHeight;
+        mGameWindowViewport.x = 0;
+        mGameWindowViewport.y = 0;
+        mGameWindowViewport.width = mVREyeWidth;
+        mGameWindowViewport.height = mVREyeHeight;
+    }
+
     if (mCurDimensions.height == 0) {
         // Avoid division by zero
         mCurDimensions.height = 1;

@@ -1043,7 +1043,12 @@ void GfxRenderingAPIDX11::SetVREyeRT(void* rtv) {
 
 void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     FramebufferDX11& fb = mFrameBuffers[fb_id];
-    mRenderTargetHeight = mTextures[fb.texture_id].height;
+    
+    if (mVREyeRT && mVRSession) {
+        mRenderTargetHeight = mVRSession->GetHeight();
+    } else {
+        mRenderTargetHeight = mTextures[fb.texture_id].height;
+    }
 
     ID3D11RenderTargetView* rtv = mVREyeRT ? mVREyeRT : fb.render_target_view.Get();
     ID3D11DepthStencilView* dsv = mVREyeDSV ? mVREyeDSV : (fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);

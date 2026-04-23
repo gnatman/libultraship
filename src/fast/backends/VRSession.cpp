@@ -422,10 +422,13 @@ void VRSession::GetHeadPose(float pos[3], float rot[3]) const {
 
     if (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) {
         XrQuaternionf q = location.pose.orientation;
-        // Convert quaternion to Euler angles (Pitch, Yaw, Roll)
-        rot[0] = atan2f(2.0f * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z); // Pitch
-        rot[1] = asinf(std::clamp(-2.0f * (q.x * q.z - q.w * q.y), -1.0f, 1.0f)); // Yaw
-        rot[2] = atan2f(2.0f * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z); // Roll
+        // Convert quaternion to Euler angles (YXZ intrinsic / ZXY extrinsic)
+        // Yaw (Y)
+        rot[1] = atan2f(2.0f * (q.w * q.y + q.z * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+        // Pitch (X)
+        rot[0] = asinf(std::clamp(2.0f * (q.w * q.x - q.y * q.z), -1.0f, 1.0f));
+        // Roll (Z)
+        rot[2] = atan2f(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.x * q.x + q.z * q.z));
     }
 }
 
