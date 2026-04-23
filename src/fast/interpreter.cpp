@@ -1381,7 +1381,11 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
             if (mVRActive) {
                 // Ortho detection: guOrtho has mf[3][3] = 1.0, guPerspective has mf[3][3] = 0.0
                 mVRIsOrtho = (matrix[3][3] > 0.5f);
-                memcpy(mRsp->P_matrix, mVREyeProjection[mVREyeIndex], sizeof(float) * 16);
+                if (!mVRIsOrtho) {
+                    memcpy(mRsp->P_matrix, mVREyeProjection[mVREyeIndex], sizeof(float) * 16);
+                } else {
+                    memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
+                }
             } else {
                 memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
             }
@@ -1399,7 +1403,7 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
                 ++mRsp->modelview_matrix_stack_size;
             }
 
-            if (mVRActive && (mVRIsOrtho || mVRCinemaMode)) {
+            if (mVRActive && (mVRIsOrtho || mVRCinemaMode) && !mVRIsOrtho) {
                 // Inject quad transform: 0-320, 0-240 -> 3D quad in front of eye
                 float scale = 0.00625f; // 2.0 / 320.0
                 float quadMtx[4][4] = { 0 };

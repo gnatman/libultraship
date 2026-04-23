@@ -1044,14 +1044,14 @@ void GfxRenderingAPIDX11::SetVREyeRT(void* rtv) {
 void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     FramebufferDX11& fb = mFrameBuffers[fb_id];
     
-    if (mVREyeRT && mVRSession) {
+    if (fb_id == 0 && mVREyeRT && mVRSession) {
         mRenderTargetHeight = mVRSession->GetHeight();
     } else {
         mRenderTargetHeight = mTextures[fb.texture_id].height;
     }
 
-    ID3D11RenderTargetView* rtv = mVREyeRT ? mVREyeRT : fb.render_target_view.Get();
-    ID3D11DepthStencilView* dsv = mVREyeDSV ? mVREyeDSV : (fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    ID3D11RenderTargetView* rtv = (fb_id == 0 && mVREyeRT) ? mVREyeRT : fb.render_target_view.Get();
+    ID3D11DepthStencilView* dsv = (fb_id == 0 && mVREyeDSV) ? mVREyeDSV : (fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
     mContext->OMSetRenderTargets(1, &rtv, dsv);
 
     mCurrentFramebuffer = fb_id;
@@ -1067,8 +1067,8 @@ void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     mContext->Unmap(mPerFrameCb.Get(), 0);
 }
 void GfxRenderingAPIDX11::ClearFramebuffer(bool color, bool depth) {
-    ID3D11RenderTargetView* rtv = mVREyeRT;
-    ID3D11DepthStencilView* dsv = mVREyeDSV;
+    ID3D11RenderTargetView* rtv = (mCurrentFramebuffer == 0 && mVREyeRT) ? mVREyeRT : nullptr;
+    ID3D11DepthStencilView* dsv = (mCurrentFramebuffer == 0 && mVREyeDSV) ? mVREyeDSV : nullptr;
 
     if (!rtv) {
         FramebufferDX11& fb = mFrameBuffers[mCurrentFramebuffer];
@@ -1117,13 +1117,21 @@ void GfxRenderingAPIDX11::CopyFramebuffer(int fb_dst_id, int fb_src_id, int srcX
     TextureData& td_dst = mTextures[fb_dst.texture_id];
     TextureData& td_src = mTextures[fb_src.texture_id];
 
+    ID3D11Resource* dst_resource = td_dst.texture.Get();
+    bool redirected = false;
+    if (fb_dst_id == 0 && mVREyeRT) {
+        mVREyeRT->GetResource(&dst_resource);
+        redirected = true;
+    }
+
     // Textures are the same size so we can do a direct copy or resolve
     if (td_src.height == td_dst.height && td_src.width == td_dst.width) {
         if (fb_src.msaa_level <= 1) {
-            mContext->CopyResource(td_dst.texture.Get(), td_src.texture.Get());
+            mContext->CopyResource(dst_resource, td_src.texture.Get());
         } else {
-            mContext->ResolveSubresource(td_dst.texture.Get(), 0, td_src.texture.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+            mContext->ResolveSubresource(dst_resource, 0, td_src.texture.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
         }
+        if (redirected) dst_resource->Release();
         return;
     }
 
@@ -1131,6 +1139,7 @@ void GfxRenderingAPIDX11::CopyFramebuffer(int fb_dst_id, int fb_src_id, int srcX
         dstY1 > (int)td_dst.height || dstX1 > (int)td_dst.width || dstX0 < 0 || dstY0 < 0) {
         // Using a source region larger than the source resource or copy outside of the destination resource is
         // considered undefined behavior and could lead to removal of the rendering mDevice
+        if (redirected) dst_resource->Release();
         return;
     }
 
@@ -1144,7 +1153,7 @@ void GfxRenderingAPIDX11::CopyFramebuffer(int fb_dst_id, int fb_src_id, int srcX
 
     // We can't region copy a multi-sample texture to a single sample texture
     if (fb_src.msaa_level <= 1) {
-        mContext->CopySubresourceRegion(td_dst.texture.Get(), dstX0, dstY0, 0, 0, td_src.texture.Get(), 0, &region);
+        mContext->CopySubresourceRegion(dst_resource, dstX0, dstY0, 0, 0, td_src.texture.Get(), 0, &region);
     } else {
         // Setup a temporary texture
         TextureData td_resolved;
@@ -1169,9 +1178,10 @@ void GfxRenderingAPIDX11::CopyFramebuffer(int fb_dst_id, int fb_src_id, int srcX
         // Resolve multi-sample to temporary
         mContext->ResolveSubresource(td_resolved.texture.Get(), 0, td_src.texture.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
         // Then copy the region to the destination
-        mContext->CopySubresourceRegion(td_dst.texture.Get(), dstX0, dstY0, 0, 0, td_resolved.texture.Get(), 0,
+        mContext->CopySubresourceRegion(dst_resource, dstX0, dstY0, 0, 0, td_resolved.texture.Get(), 0,
                                         &region);
     }
+    if (redirected) dst_resource->Release();
 }
 
 void GfxRenderingAPIDX11::ReadFramebufferToCPU(int fb_id, uint32_t width, uint32_t height, uint16_t* rgba16_buf) {
