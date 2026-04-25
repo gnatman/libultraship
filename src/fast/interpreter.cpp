@@ -114,6 +114,7 @@ Interpreter::Interpreter() {
     mRsp = new RSP();
     mRdp = new RDP();
     mBufVbo = new float[MAX_TRI_BUFFER * (32 * 3)];
+    mActiveFrameBuffer = mFrameBuffers.end();
 }
 
 Interpreter::~Interpreter() {
@@ -1968,14 +1969,57 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
 
     struct GfxClipParameters clip_parameters = mRapi->GetClipParameters();
 
+    // Determine if this is a HUD element (small) or Background (large).
+    // Coordinates are currently in NDC space (-1.0 to 1.0).
+    float min_x = fmin(fmin(v_arr[0]->x, v_arr[1]->x), v_arr[2]->x);
+    float max_x = fmax(fmax(v_arr[0]->x, v_arr[1]->x), v_arr[2]->x);
+    float min_y = fmin(fmin(v_arr[0]->y, v_arr[1]->y), v_arr[2]->y);
+    float max_y = fmax(fmax(v_arr[0]->y, v_arr[1]->y), v_arr[2]->y);
+    float rect_width = max_x - min_x;
+    float rect_height = max_y - min_y;
+
+    // Full screen background is ~2.0 wide in NDC. HUD elements are smaller.
+    bool isFullScreen = (rect_width > 1.9f && rect_height > 1.9f);
+
     for (int i = 0; i < 3; i++) {
-        float z = v_arr[i]->z, w = v_arr[i]->w;
+        float x = v_arr[i]->x;
+        float y = v_arr[i]->y;
+        float z = v_arr[i]->z;
+        float w = v_arr[i]->w;
+
+        if (mVRActive && mVRIsOrtho && !isFullScreen) {
+            // THE INVERSE TRANSFORM TRICK:
+            // 1. Map NDC (-1 to 1) to a 3D world position at the slider distance.
+            float distance = mVRHudDistance;
+            
+            // Map NDC back to a standard 4:3 view plane at distance.
+            // We use a fixed scale so the HUD naturally gets smaller as it moves away.
+            float world_x = x * 1.333f; 
+            float world_y = y;
+            float world_z = -distance;
+            
+            // 2. Project that 3D point using the actual VR headset's lens.
+            float nx = world_x * mVREyeProjection[mVREyeIndex][0][0] + world_z * mVREyeProjection[mVREyeIndex][2][0] + mVREyeProjection[mVREyeIndex][3][0];
+            float ny = world_y * mVREyeProjection[mVREyeIndex][1][1] + world_z * mVREyeProjection[mVREyeIndex][2][1] + mVREyeProjection[mVREyeIndex][3][1];
+            float nz = world_x * mVREyeProjection[mVREyeIndex][0][2] + world_y * mVREyeProjection[mVREyeIndex][1][2] + world_z * mVREyeProjection[mVREyeIndex][2][2] + mVREyeProjection[mVREyeIndex][3][2];
+            float nw = world_x * mVREyeProjection[mVREyeIndex][0][3] + world_y * mVREyeProjection[mVREyeIndex][1][3] + world_z * mVREyeProjection[mVREyeIndex][2][3] + mVREyeProjection[mVREyeIndex][3][3];
+            
+            float ndc_x = nx / nw;
+            float ndc_y = ny / nw;
+            
+            // 3. Convert NDC back into the -1.0 to 1.0 range the Ortho matrix expects.
+            x = ndc_x;
+            y = ndc_y;
+            z = nz / nw;
+            w = 1.0f;
+        }
+
         if (clip_parameters.z_is_from_0_to_1) {
             z = (z + w) / 2.0f;
         }
 
-        mBufVbo[mBufVboLen++] = v_arr[i]->x;
-        mBufVbo[mBufVboLen++] = clip_parameters.invertY ? -v_arr[i]->y : v_arr[i]->y;
+        mBufVbo[mBufVboLen++] = x;
+        mBufVbo[mBufVboLen++] = clip_parameters.invertY ? -y : y;
         mBufVbo[mBufVboLen++] = z;
         mBufVbo[mBufVboLen++] = w;
 

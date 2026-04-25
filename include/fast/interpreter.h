@@ -411,6 +411,7 @@ class Interpreter {
         mVREyeWidth = width;
         mVREyeHeight = height;
     }
+    void SetVRHudDistance(float distance) { mVRHudDistance = distance; }
     void SetVREyeProjection(int eye, float mat[4][4]) { memcpy(mVREyeProjection[eye], mat, sizeof(float) * 16); }
 
     // private: TODO make these private
@@ -502,6 +503,7 @@ class Interpreter {
     int mVREyeIndex = 0;
     uint32_t mVREyeWidth = 0;
     uint32_t mVREyeHeight = 0;
+    float mVRHudDistance = 2.0f;
     float mVREyeProjection[2][4][4];
 
     RSP* mRsp;

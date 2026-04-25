@@ -222,10 +222,11 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
             void* eyeRtv = mVRSession->BeginEye(eye);
             if (eyeRtv) {
                 float proj[4][4];
-                mVRSession->GetProjectionMatrix(eye, 1.0f, 10000.0f, proj);
+                mVRSession->GetProjectionMatrix(eye, 0.01f, 10000.0f, proj);
                 mInterpreter->SetVREyeProjection(eye, proj);
                 mInterpreter->SetVREye(eye);
                 mInterpreter->SetVREyeDimensions(mVRSession->GetWidth(), mVRSession->GetHeight());
+                mInterpreter->SetVRHudDistance(Ship::Context::GetInstance()->GetConsoleVariables()->GetFloat("gVRHudDistance", 2.0f));
 
                 Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger("gVREye", eye);
                 SetVREyeRT(eyeRtv);
