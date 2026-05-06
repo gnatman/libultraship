@@ -393,6 +393,8 @@ class Interpreter {
     int CreateFrameBuffer(uint32_t width, uint32_t height, uint32_t native_width, uint32_t native_height,
                           uint8_t resize);
     void SetFrameBuffer(int fb, float noiseScale);
+    void SetGameFramebuffer(int fbId) { mGameFb = fbId; }
+    int GetGameFramebuffer() const { return mGameFb; }
     void CopyFrameBuffer(int fb_dst_id, int fb_src_id, bool copyOnce, bool* hasCopiedPtr);
     void ResetFrameBuffer();
     void AdjustPixelDepthCoordinates(float& x, float& y);

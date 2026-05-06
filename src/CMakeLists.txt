@@ -55,6 +55,12 @@ add_subdirectory("libultraship")
 
 add_subdirectory("ship")
 
+#=================== VR ===================
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    add_subdirectory("vr")
+endif()
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/ship/utils/AppleFolderManager.mm PROPERTIES COMPILE_FLAGS -fno-objc-arc)
 endif()
@@ -150,7 +156,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         _CRT_SECURE_NO_WARNINGS
         ENABLE_DX11
         NOMINMAX
+        LUS_ENABLE_VR
     )
+    find_package(OpenXR CONFIG REQUIRED)
+    target_link_libraries(libultraship PRIVATE OpenXR::openxr_loader)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")

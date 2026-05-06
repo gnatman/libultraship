@@ -946,6 +946,26 @@ void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     mContext->Unmap(mPerFrameCb.Get(), 0);
 }
 
+void GfxRenderingAPIDX11::BindExternalRenderTarget(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, uint32_t width, uint32_t height) {
+    mRenderTargetHeight = height;
+    mCurrentFramebuffer = -1; // Indicate it's an external buffer
+
+    mContext->OMSetRenderTargets(1, &rtv, dsv);
+
+    D3D11_MAPPED_SUBRESOURCE ms;
+    ZeroMemory(&ms, sizeof(D3D11_MAPPED_SUBRESOURCE));
+    mContext->Map(mPerFrameCb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    memcpy(ms.pData, &mPerFrameCbData, sizeof(PerFrameCB));
+    mContext->Unmap(mPerFrameCb.Get(), 0);
+}
+
+void GfxRenderingAPIDX11::UnbindExternalRenderTarget() {
+    // Unbinding logic will simply wait for the next StartDrawToFramebuffer or similar to set it back,
+    // or we can explicitly unbind.
+    ID3D11RenderTargetView* nullRTV = nullptr;
+    mContext->OMSetRenderTargets(1, &nullRTV, nullptr);
+}
+
 void GfxRenderingAPIDX11::ClearFramebuffer(bool color, bool depth) {
     FramebufferDX11& fb = mFrameBuffers[mCurrentFramebuffer];
     if (color) {

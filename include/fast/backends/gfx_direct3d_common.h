@@ -119,6 +119,11 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     void SetSrgbMode() override;
     ImTextureID GetTextureById(int id) override;
 
+    ID3D11Device* GetDevice() { return mDevice.Get(); }
+    ID3D11DeviceContext* GetDeviceContext() { return mContext.Get(); }
+    void BindExternalRenderTarget(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, uint32_t width, uint32_t height);
+    void UnbindExternalRenderTarget();
+
     PFN_D3D11_CREATE_DEVICE mDX11CreateDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mContext;
     Microsoft::WRL::ComPtr<ID3D11Device> mDevice;
