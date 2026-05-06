@@ -150,7 +150,7 @@ endif()
 target_compile_definitions(libultraship PRIVATE ${GBI_UCODE})
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    target_compile_definitions(${PROJECT_NAME} PRIVATE
+    target_compile_definitions(${PROJECT_NAME} PUBLIC
         WIN32
         _CONSOLE
         _CRT_SECURE_NO_WARNINGS
@@ -159,7 +159,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         LUS_ENABLE_VR
     )
     find_package(OpenXR CONFIG REQUIRED)
-    target_link_libraries(libultraship PRIVATE OpenXR::openxr_loader)
+    target_link_libraries(libultraship PUBLIC OpenXR::openxr_loader)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")

@@ -5080,6 +5080,10 @@ int Interpreter::CreateFrameBuffer(uint32_t width, uint32_t height, uint32_t nat
 }
 
 void Interpreter::SetFrameBuffer(int fb, float noiseScale) {
+    if (mRapi->HasExternalRenderTarget()) {
+        mRapi->ClearFramebuffer(false, true);
+        return;
+    }
     mRapi->StartDrawToFramebuffer(fb, noiseScale);
     mRapi->ClearFramebuffer(false, true);
 }

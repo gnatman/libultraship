@@ -123,6 +123,7 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     ID3D11DeviceContext* GetDeviceContext() { return mContext.Get(); }
     void BindExternalRenderTarget(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, uint32_t width, uint32_t height);
     void UnbindExternalRenderTarget();
+    bool HasExternalRenderTarget() override { return mCurrentFramebuffer == -1; }
 
     PFN_D3D11_CREATE_DEVICE mDX11CreateDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mContext;

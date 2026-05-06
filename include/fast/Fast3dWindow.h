@@ -84,6 +84,7 @@ class Fast3dWindow : public Ship::Window {
     bool DrawAndRunGraphicsCommands(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtxReplacements);
 
     std::weak_ptr<Interpreter> GetInterpreterWeak() const;
+    GfxRenderingAPI* GetRenderingApi() const { return mRenderingApi; }
 
     /** @brief Returns the graphics debugger for this Fast3D window. */
     std::shared_ptr<GfxDebugger> GetGfxDebugger() const;
