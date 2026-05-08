@@ -77,6 +77,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     include(cmake/ios-toolchain-populate.cmake)
 endif()
 
+option(ENABLE_VR "Enable VR support" OFF)
+
+if(ENABLE_VR)
+    add_compile_definitions(ENABLE_VR)
+endif()
+
 # =========== Sources =============
 add_subdirectory("src")
 

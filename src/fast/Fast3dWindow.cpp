@@ -1,5 +1,6 @@
 #include "fast/Fast3dWindow.h"
 #include "vr/MockVRPose.h"
+#include "vr/VRToggle.h"
 
 #include "ship/Context.h"
 #include "ship/config/Config.h"
@@ -220,6 +221,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
 void Fast3dWindow::HandleEvents() {
     mWindowManagerApi->HandleEvents();
+    Ship::VRToggle::Update();
     if (mMockVRPose) {
         mMockVRPose->Update();
     }
@@ -347,12 +349,14 @@ const char* Fast3dWindow::GetKeyName(int32_t scancode) {
     return mWindowManagerApi->GetKeyName(scancode);
 }
 
+#ifdef ENABLE_VR
 Ship::VRPose* Fast3dWindow::GetVRPose() {
     if (mMockVRPose) {
         return const_cast<Ship::VRPose*>(&mMockVRPose->GetPose());
     }
     return nullptr;
 }
+#endif
 
 bool Fast3dWindow::KeyUp(int32_t scancode) {
     auto wnd = Ship::Context::GetInstance()->GetWindow();

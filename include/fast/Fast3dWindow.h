@@ -68,7 +68,9 @@ class Fast3dWindow : public Ship::Window {
     uintptr_t GetGfxFrameBuffer() override;
     const char* GetKeyName(int32_t scancode) override;
 
+#ifdef ENABLE_VR
     Ship::VRPose* GetVRPose() override;
+#endif
 
     std::string GetWindowBackendName() override;
 

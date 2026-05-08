@@ -165,10 +165,12 @@ class Window {
     /** @brief Returns a handle to the graphics API framebuffer object. */
     virtual uintptr_t GetGfxFrameBuffer() = 0;
 
+#ifdef ENABLE_VR
     /** @brief Returns the current VR pose, or nullptr if VR is not active. */
     virtual VRPose* GetVRPose() {
         return nullptr;
     }
+#endif
 
     /**
      * @brief Sets the window dimensions (size and position) and applies them immediately.

@@ -49,7 +49,11 @@ add_subdirectory("fast")
 
 #=================== VR ===================
 
-file(GLOB Source_Files__VR RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "vr/*.cpp")
+set(Source_Files__VR
+    "vr/MockVRPose.cpp"
+    "vr/VRRuntime.cpp"
+    "vr/VRToggle.cpp"
+)
 source_group("vr" FILES ${Source_Files__VR})
 target_sources(libultraship PRIVATE ${Source_Files__VR})
 
@@ -139,6 +143,11 @@ if (USE_OPENGLES)
 endif()
 
 target_link_libraries(libultraship PUBLIC prism monocypher)
+
+if(ENABLE_VR)
+    find_package(OpenXR REQUIRED)
+    target_link_libraries(libultraship PUBLIC OpenXR::openxr_loader)
+endif()
 
 if(ENABLE_SCRIPTING)
     target_link_libraries(libultraship PUBLIC libtcc libtcc1)
