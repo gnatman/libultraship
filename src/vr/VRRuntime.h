@@ -26,6 +26,7 @@ public:
     bool IsInitialized() const { return mInitialized; }
     XrInstance GetInstanceHandle() const { return mInstance; }
     XrSession GetSessionHandle() const { return mSession; }
+    XrSessionState GetSessionState() const { return mSessionState; }
 
     struct Swapchain {
         XrSwapchain handle;

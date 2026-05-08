@@ -228,9 +228,22 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 #ifdef ENABLE_VR
     if (Ship::VRToggle::IsVREnabled()) {
         auto runtime = Ship::VRRuntime::GetInstance();
-        if (runtime->IsInitialized() && runtime->BeginFrame()) {
-            if (runtime->ShouldRender()) {
+        bool initialized = runtime->IsInitialized();
+        bool beginFrameSuccess = false;
+        
+        static int frameTrack = 0;
+        bool shouldRender = runtime->ShouldRender();
+        if (frameTrack++ % 500 == 0) {
+            SPDLOG_INFO("VR Path - Init: {}, State: {}, Render: {}", (int)initialized, (int)runtime->GetSessionState(), (int)shouldRender);
+        }
+
+        if (initialized && (beginFrameSuccess = runtime->BeginFrame())) {
+            if (shouldRender) {
                 auto rapi = GetRenderingApi();
+                
+                // Save original window dimensions
+                auto originalDimensions = mInterpreter->mCurDimensions;
+
                 for (int eye = 0; eye < 2; eye++) {
                     // 1. Acquire Image from VR Runtime
                     uint32_t imgIdx = runtime->AcquireImage(eye);
@@ -239,11 +252,15 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     int32_t w, h;
                     runtime->GetSwapchainDimensions(eye, &w, &h);
 
-                    // 2. Redirect Rendering
+                    // 2. Redirect Rendering and STATE
                     rapi->SetOverrideRenderTarget(rtv, dsv, w, h);
                     rapi->SetViewport(0, 0, w, h);
                     rapi->SetScissor(0, 0, w, h);
                     rapi->ClearFramebuffer(true, true);
+
+                    // Crucial: Tell the interpreter we are rendering at VR resolution
+                    mInterpreter->mCurDimensions.width = w;
+                    mInterpreter->mCurDimensions.height = h;
 
                     // 3. Set Matrices and Run
                     float proj[16];
@@ -251,6 +268,12 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     runtime->GetProjectionMatrix(eye, proj, 1.0f, 20000.0f);
                     runtime->GetViewMatrix(eye, view);
                     
+                    static int frameCounter = 0;
+                    if (frameCounter % 500 == 0) {
+                        SPDLOG_INFO("Stereo Pass {} - Eye X: {:.4f}, VR Res: {}x{}", eye, view[12], w, h);
+                    }
+                    if (eye == 1) frameCounter++;
+
                     mInterpreter->SetVRMatrices(true, proj, view, w, h);
                     mInterpreter->Run(commands, mtxReplacements);
 
@@ -258,6 +281,9 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
                     runtime->ReleaseImage(eye);
                 }
+                
+                // Restore original window dimensions
+                mInterpreter->mCurDimensions = originalDimensions;
                 mInterpreter->SetVRMatrices(false, nullptr, nullptr, 0, 0);
             }
             runtime->EndFrame();

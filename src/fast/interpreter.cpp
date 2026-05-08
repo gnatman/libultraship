@@ -1467,8 +1467,19 @@ float Interpreter::AdjXForAspectRatio(float x) const {
 // Scale the width and height value based on the ratio of the viewport to the native size
 void Interpreter::AdjustWidthHeightForScale(uint32_t& width, uint32_t& height, uint32_t nativeWidth,
                                             uint32_t nativeHeight) const {
-    width = round(width * (mCurDimensions.width / (2.0f * (nativeWidth / 2))));
-    height = round(height * (mCurDimensions.height / (2.0f * (nativeHeight / 2))));
+    float effectiveWidth = mVREnabled ? (float)mVROverrideWidth : (float)mCurDimensions.width;
+    float effectiveHeight = mVREnabled ? (float)mVROverrideHeight : (float)mCurDimensions.height;
+
+    if (mVREnabled) {
+        static int logCount = 0;
+        if (logCount++ % 2000 == 0) {
+            SPDLOG_INFO("VR Scaling Logic - effectiveRes: {:.0f}x{:.0f}, nativeRes: {}x{}, in: {}x{}", 
+                effectiveWidth, effectiveHeight, nativeWidth, nativeHeight, width, height);
+        }
+    }
+
+    width = round(width * (effectiveWidth / (2.0f * (nativeWidth / 2))));
+    height = round(height * (effectiveHeight / (2.0f * (nativeHeight / 2))));
 
     if (width == 0) {
         width = 1;

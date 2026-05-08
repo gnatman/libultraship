@@ -13,7 +13,6 @@
 #include "ship/Context.h"
 #include "fast/Fast3dWindow.h"
 #include "fast/backends/gfx_rendering_api.h"
-#include "fast/backends/gfx_direct3d_common.h"
 
 namespace Ship {
 
@@ -196,8 +195,7 @@ void VRRuntime::EndFrame() {
 
     if (mFrameState.shouldRender) {
         for (int i = 0; i < 2; i++) {
-            // Submit the actual pose the image was rendered from for correct TimeWarp calculation
-            if (i < mViews.size()) {
+            if (i < (int)mViews.size()) {
                 projectionViews[i].pose = mViews[i].pose;
             } else {
                 projectionViews[i].pose.position = { 0, 0, 0 };
@@ -214,8 +212,7 @@ void VRRuntime::EndFrame() {
             projectionViews[i].subImage.imageRect.extent = { mSwapchains[i].width, mSwapchains[i].height };
         }
 
-        // Switch to LOCAL space for layer submission to fix black screen/clipping
-        layer.space = mStageSpace; // Wait, I created mStageSpace as STAGE or LOCAL.
+        layer.space = mStageSpace;
         layer.viewCount = 2;
         layer.views = projectionViews.data();
         layers.push_back((XrCompositionLayerBaseHeader*)&layer);
@@ -230,11 +227,6 @@ void VRRuntime::EndFrame() {
     XrResult res = xrEndFrame(mSession, &endInfo);
     if (XR_FAILED(res)) {
         SPDLOG_ERROR("xrEndFrame failed with error: {}", (int)res);
-    }
-
-    static int frameCounter = 0;
-    if (frameCounter++ % 200 == 0) {
-        SPDLOG_INFO("OpenXR Frame Submitted (Layers: {}, Render: {})", layers.size(), mFrameState.shouldRender);
     }
 }
 
@@ -313,32 +305,32 @@ void VRRuntime::UpdatePose(XrTime predictedTime) {
     XrViewState viewState = { XR_TYPE_VIEW_STATE };
     xrLocateViews(mSession, &locateInfo, &viewState, 0, &viewCount, nullptr);
     
-    std::vector<XrView> views(viewCount, { XR_TYPE_VIEW });
-    xrLocateViews(mSession, &locateInfo, &viewState, viewCount, &viewCount, views.data());
+    mViews.assign(viewCount, { XR_TYPE_VIEW });
+    xrLocateViews(mSession, &locateInfo, &viewState, viewCount, &viewCount, mViews.data());
 
     if (viewCount >= 2) {
-        mCurrentPose.head.position[0] = (views[0].pose.position.x + views[1].pose.position.x) * 0.5f;
-        mCurrentPose.head.position[1] = (views[0].pose.position.y + views[1].pose.position.y) * 0.5f;
-        mCurrentPose.head.position[2] = (views[0].pose.position.z + views[1].pose.position.z) * 0.5f;
+        mCurrentPose.head.position[0] = (mViews[0].pose.position.x + mViews[1].pose.position.x) * 0.5f;
+        mCurrentPose.head.position[1] = (mViews[0].pose.position.y + mViews[1].pose.position.y) * 0.5f;
+        mCurrentPose.head.position[2] = (mViews[0].pose.position.z + mViews[1].pose.position.z) * 0.5f;
         
-        mCurrentPose.head.orientation[0] = views[0].pose.orientation.x;
-        mCurrentPose.head.orientation[1] = views[0].pose.orientation.y;
-        mCurrentPose.head.orientation[2] = views[0].pose.orientation.z;
-        mCurrentPose.head.orientation[3] = views[0].pose.orientation.w;
+        mCurrentPose.head.orientation[0] = mViews[0].pose.orientation.x;
+        mCurrentPose.head.orientation[1] = mViews[0].pose.orientation.y;
+        mCurrentPose.head.orientation[2] = mViews[0].pose.orientation.z;
+        mCurrentPose.head.orientation[3] = mViews[0].pose.orientation.w;
 
         for (int i = 0; i < 2; i++) {
-            mCurrentPose.eyes[i].position[0] = views[i].pose.position.x;
-            mCurrentPose.eyes[i].position[1] = views[i].pose.position.y;
-            mCurrentPose.eyes[i].position[2] = views[i].pose.position.z;
-            mCurrentPose.eyes[i].orientation[0] = views[i].pose.orientation.x;
-            mCurrentPose.eyes[i].orientation[1] = views[i].pose.orientation.y;
-            mCurrentPose.eyes[i].orientation[2] = views[i].pose.orientation.z;
-            mCurrentPose.eyes[i].orientation[3] = views[i].pose.orientation.w;
+            mCurrentPose.eyes[i].position[0] = mViews[i].pose.position.x;
+            mCurrentPose.eyes[i].position[1] = mViews[i].pose.position.y;
+            mCurrentPose.eyes[i].position[2] = mViews[i].pose.position.z;
+            mCurrentPose.eyes[i].orientation[0] = mViews[i].pose.orientation.x;
+            mCurrentPose.eyes[i].orientation[1] = mViews[i].pose.orientation.y;
+            mCurrentPose.eyes[i].orientation[2] = mViews[i].pose.orientation.z;
+            mCurrentPose.eyes[i].orientation[3] = mViews[i].pose.orientation.w;
 
-            mCurrentPose.fov[i].angleLeft = views[i].fov.angleLeft;
-            mCurrentPose.fov[i].angleRight = views[i].fov.angleRight;
-            mCurrentPose.fov[i].angleUp = views[i].fov.angleUp;
-            mCurrentPose.fov[i].angleDown = views[i].fov.angleDown;
+            mCurrentPose.fov[i].angleLeft = mViews[i].fov.angleLeft;
+            mCurrentPose.fov[i].angleRight = mViews[i].fov.angleRight;
+            mCurrentPose.fov[i].angleUp = mViews[i].fov.angleUp;
+            mCurrentPose.fov[i].angleDown = mViews[i].fov.angleDown;
         }
     }
 
@@ -417,7 +409,7 @@ bool VRRuntime::CreateSession() {
     SPDLOG_INFO("OpenXR Session created!");
 
     XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL; // Use LOCAL for head-relative submission
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL; 
     spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
     XrResult resultSpace = xrCreateReferenceSpace(mSession, &spaceInfo, &mStageSpace);
     if (XR_FAILED(resultSpace)) {
@@ -427,18 +419,15 @@ bool VRRuntime::CreateSession() {
 
     return true;
 }
+
 bool VRRuntime::CreateSwapchains() {
-    // Enumerate formats
     uint32_t formatCount = 0;
     xrEnumerateSwapchainFormats(mSession, 0, &formatCount, nullptr);
     std::vector<int64_t> formats(formatCount);
     xrEnumerateSwapchainFormats(mSession, formatCount, &formatCount, formats.data());
 
-    SPDLOG_INFO("Supported OpenXR Swapchain Formats:");
     int64_t selectedFormat = -1;
     for (int64_t f : formats) {
-        SPDLOG_INFO("  - {}", f);
-        // FORCE SRGB. If not SRGB, SteamVR often rejects the frame or renders black.
         if (f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) {
             selectedFormat = f;
             break;
@@ -446,7 +435,6 @@ bool VRRuntime::CreateSwapchains() {
     }
 
     if (selectedFormat == -1) {
-        // Fallback
         for (int64_t f : formats) {
             if (f == DXGI_FORMAT_R8G8B8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM) {
                 selectedFormat = f;
@@ -456,8 +444,6 @@ bool VRRuntime::CreateSwapchains() {
     }
 
     if (selectedFormat == -1) return false;
-    SPDLOG_INFO("Selected Swapchain Format: {}", selectedFormat);
-
 
     uint32_t configCount = 0;
     xrEnumerateViewConfigurationViews(mInstance, mSystemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &configCount, nullptr);
@@ -538,7 +524,6 @@ void VRRuntime::ReleaseImage(int eye) {
         if (fastWindow && fastWindow->GetRenderingApi()) {
             auto context = static_cast<ID3D11DeviceContext*>(fastWindow->GetRenderingApi()->GetContext());
             if (context) {
-                // Ensure the texture is unbound before releasing to the compositor
                 ID3D11RenderTargetView* nullRTV = nullptr;
                 context->OMSetRenderTargets(1, &nullRTV, nullptr);
                 context->Flush();
