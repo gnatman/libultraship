@@ -1,6 +1,7 @@
 #include "fast/Fast3dWindow.h"
 #include "vr/MockVRPose.h"
 #include "vr/VRToggle.h"
+#include "vr/VRRuntime.h"
 
 #include "ship/Context.h"
 #include "ship/config/Config.h"
@@ -209,8 +210,52 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
     gui->StartDraw();
     // Setup game framebuffers to match available window space
     mInterpreter->StartFrame();
+
+#ifdef ENABLE_VR
+    static bool firstVRCheck = true;
+    if (firstVRCheck) {
+        SPDLOG_INFO("ENABLE_VR macro is DEFINED in Fast3dWindow.cpp");
+        firstVRCheck = false;
+    }
+#else
+    static bool firstVRCheck = true;
+    if (firstVRCheck) {
+        SPDLOG_INFO("ENABLE_VR macro is NOT DEFINED in Fast3dWindow.cpp");
+        firstVRCheck = false;
+    }
+#endif
+
+#ifdef ENABLE_VR
+    if (Ship::VRToggle::IsVREnabled()) {
+        auto runtime = Ship::VRRuntime::GetInstance();
+        if (runtime->IsInitialized()) {
+            for (int eye = 0; eye < 2; eye++) {
+                float proj[16];
+                float view[16];
+                runtime->GetProjectionMatrix(eye, proj, 1.0f, 20000.0f);
+                runtime->GetViewMatrix(eye, view);
+                
+                static int frameCounter = 0;
+                if (frameCounter % 200 == 0) {
+                    SPDLOG_INFO("Stereo Pass {} - Eye X: {:.4f}", eye, view[12]);
+                }
+                if (eye == 1) frameCounter++;
+
+                mInterpreter->SetVRMatrices(true, proj, view);
+                mInterpreter->Run(commands, mtxReplacements);
+            }
+            mInterpreter->SetVRMatrices(false, nullptr, nullptr);
+        } else {
+            mInterpreter->Run(commands, mtxReplacements);
+        }
+    } else {
+        mInterpreter->Run(commands, mtxReplacements);
+    }
+#else
     // Execute the games gfx commands
     mInterpreter->Run(commands, mtxReplacements);
+#endif
+
     // Renders the game frame buffer to the final window and finishes the GUI
     gui->EndDraw();
     // Finalize swap buffers

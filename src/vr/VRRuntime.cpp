@@ -8,6 +8,7 @@
 #include <openxr/openxr_platform.h>
 #include <spdlog/spdlog.h>
 #include <iostream>
+#include <cmath>
 
 #include "ship/Context.h"
 #include "fast/Fast3dWindow.h"
@@ -24,13 +25,16 @@ std::shared_ptr<VRRuntime> VRRuntime::GetInstance() {
     return mInstancePtr;
 }
 
-VRRuntime::VRRuntime() {
+VRRuntime::VRRuntime() : mCurrentPose{} {
     for (int i = 0; i < 2; i++) {
         mSwapchains[i].handle = XR_NULL_HANDLE;
         mSwapchains[i].width = 0;
         mSwapchains[i].height = 0;
         mSwapchains[i].images.clear();
     }
+    mCurrentPose.head.orientation[3] = 1.0f;
+    mCurrentPose.eyes[0].orientation[3] = 1.0f;
+    mCurrentPose.eyes[1].orientation[3] = 1.0f;
 }
 
 VRRuntime::~VRRuntime() {
@@ -142,7 +146,7 @@ void VRRuntime::Update() {
         event = { XR_TYPE_EVENT_DATA_BUFFER };
     }
 
-    // Basic frame loop for Phase 4
+    // Basic frame loop
     if (mSessionState == XR_SESSION_STATE_READY || mSessionState == XR_SESSION_STATE_SYNCHRONIZED || 
         mSessionState == XR_SESSION_STATE_VISIBLE || mSessionState == XR_SESSION_STATE_FOCUSED) {
         
@@ -150,10 +154,11 @@ void VRRuntime::Update() {
         XrFrameState frameState = { XR_TYPE_FRAME_STATE };
         xrWaitFrame(mSession, &waitInfo, &frameState);
 
+        UpdatePose(frameState.predictedDisplayTime);
+
         XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };
         xrBeginFrame(mSession, &beginInfo);
 
-        // In Phase 4, we just submit an empty frame (no layers) to clear the "Waiting" screen
         XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
         endInfo.displayTime = frameState.predictedDisplayTime;
         endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -161,6 +166,127 @@ void VRRuntime::Update() {
         endInfo.layers = nullptr;
         xrEndFrame(mSession, &endInfo);
     }
+}
+
+static void CreateProjectionMatrix(float* m, const XrFovf fov, float nearZ, float farZ) {
+    const float tanLeft = tanf(fov.angleLeft);
+    const float tanRight = tanf(fov.angleRight);
+    const float tanDown = tanf(fov.angleDown);
+    const float tanUp = tanf(fov.angleUp);
+
+    const float tanWidth = tanRight - tanLeft;
+    const float tanHeight = tanUp - tanDown;
+
+    // Matrix is intended for RowVector * Matrix multiplication
+    // Column 0
+    m[0] = 2.0f / tanWidth;
+    m[1] = 0.0f;
+    m[2] = 0.0f;
+    m[3] = 0.0f;
+
+    // Column 1
+    m[4] = 0.0f;
+    m[5] = 2.0f / tanHeight;
+    m[6] = 0.0f;
+    m[7] = 0.0f;
+
+    // Column 2
+    m[8] = (tanRight + tanLeft) / tanWidth;
+    m[9] = (tanUp + tanDown) / tanHeight;
+    m[10] = -(farZ + nearZ) / (farZ - nearZ);
+    m[11] = -1.0f;
+
+    // Column 3
+    m[12] = 0.0f;
+    m[13] = 0.0f;
+    m[14] = -2.0f * farZ * nearZ / (farZ - nearZ);
+    m[15] = 0.0f;
+}
+
+void VRRuntime::GetProjectionMatrix(int eye, float* m, float nearZ, float farZ) const {
+    CreateProjectionMatrix(m, { mCurrentPose.fov[eye].angleLeft, mCurrentPose.fov[eye].angleRight, mCurrentPose.fov[eye].angleUp, mCurrentPose.fov[eye].angleDown }, nearZ, farZ);
+}
+
+static void QuaternionToMatrix(const float* q, float* m) {
+    float x = q[0], y = q[1], z = q[2], w = q[3];
+    float x2 = x + x, y2 = y + y, z2 = z + z;
+    float xx = x * x2, xy = x * y2, xz = x * z2;
+    float yy = y * y2, yz = y * z2, zz = z * z2;
+    float wx = w * x2, wy = w * y2, wz = w * z2;
+
+    // Row-major matrix
+    m[0] = 1.0f - (yy + zz); m[1] = xy + wz;          m[2] = xz - wy;          m[3] = 0.0f;
+    m[4] = xy - wz;          m[5] = 1.0f - (xx + zz); m[6] = yz + wx;          m[7] = 0.0f;
+    m[8] = xz + wy;          m[9] = yz - wx;          m[10] = 1.0f - (xx + yy); m[11] = 0.0f;
+    m[12] = 0.0f;             m[13] = 0.0f;             m[14] = 0.0f;             m[15] = 1.0f;
+}
+
+void VRRuntime::GetViewMatrix(int eye, float* m) const {
+    float rot[16];
+    QuaternionToMatrix(mCurrentPose.eyes[eye].orientation, rot);
+
+    float x = mCurrentPose.eyes[eye].position[0];
+    float y = mCurrentPose.eyes[eye].position[1];
+    float z = mCurrentPose.eyes[eye].position[2];
+
+    // Transpose of rotation matrix (which is inverse for pure rotation)
+    // [ m0 m1 m2  0 ]
+    // [ m4 m5 m6  0 ]
+    // [ m8 m9 m10 0 ]
+    // [ m12 m13 m14 1 ]
+    m[0] = rot[0]; m[1] = rot[4]; m[2] = rot[8];  m[3] = 0.0f;
+    m[4] = rot[1]; m[5] = rot[5]; m[6] = rot[9];  m[7] = 0.0f;
+    m[8] = rot[2]; m[9] = rot[6]; m[10] = rot[10]; m[11] = 0.0f;
+    
+    // Translation inverse: -dot(pos, col)
+    m[12] = -(m[0] * x + m[4] * y + m[8] * z);
+    m[13] = -(m[1] * x + m[5] * y + m[9] * z);
+    m[14] = -(m[2] * x + m[6] * y + m[10] * z);
+    m[15] = 1.0f;
+}
+
+void VRRuntime::UpdatePose(XrTime predictedTime) {
+    XrViewLocateInfo locateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = predictedTime;
+    locateInfo.space = mStageSpace;
+
+    uint32_t viewCount = 0;
+    XrViewState viewState = { XR_TYPE_VIEW_STATE };
+    xrLocateViews(mSession, &locateInfo, &viewState, 0, &viewCount, nullptr);
+    
+    std::vector<XrView> views(viewCount, { XR_TYPE_VIEW });
+    xrLocateViews(mSession, &locateInfo, &viewState, viewCount, &viewCount, views.data());
+
+    if (viewCount >= 2) {
+        // Average eye positions for head pose
+        mCurrentPose.head.position[0] = (views[0].pose.position.x + views[1].pose.position.x) * 0.5f;
+        mCurrentPose.head.position[1] = (views[0].pose.position.y + views[1].pose.position.y) * 0.5f;
+        mCurrentPose.head.position[2] = (views[0].pose.position.z + views[1].pose.position.z) * 0.5f;
+        
+        // Just use left eye orientation for head for now
+        mCurrentPose.head.orientation[0] = views[0].pose.orientation.x;
+        mCurrentPose.head.orientation[1] = views[0].pose.orientation.y;
+        mCurrentPose.head.orientation[2] = views[0].pose.orientation.z;
+        mCurrentPose.head.orientation[3] = views[0].pose.orientation.w;
+
+        for (int i = 0; i < 2; i++) {
+            mCurrentPose.eyes[i].position[0] = views[i].pose.position.x;
+            mCurrentPose.eyes[i].position[1] = views[i].pose.position.y;
+            mCurrentPose.eyes[i].position[2] = views[i].pose.position.z;
+            mCurrentPose.eyes[i].orientation[0] = views[i].pose.orientation.x;
+            mCurrentPose.eyes[i].orientation[1] = views[i].pose.orientation.y;
+            mCurrentPose.eyes[i].orientation[2] = views[i].pose.orientation.z;
+            mCurrentPose.eyes[i].orientation[3] = views[i].pose.orientation.w;
+
+            mCurrentPose.fov[i].angleLeft = views[i].fov.angleLeft;
+            mCurrentPose.fov[i].angleRight = views[i].fov.angleRight;
+            mCurrentPose.fov[i].angleUp = views[i].fov.angleUp;
+            mCurrentPose.fov[i].angleDown = views[i].fov.angleDown;
+        }
+    }
+
+    mCurrentPose.displayTime = predictedTime;
 }
 
 bool VRRuntime::CreateInstance() {
@@ -196,7 +322,7 @@ bool VRRuntime::CreateSession() {
     auto renderingApi = fastWindow->GetRenderingApi();
     if (!renderingApi) return false;
 
-    ID3D11Device* device = static_cast<ID3D11Device*>(renderingApi->GetDevice());
+    ID3D11Device* device = (ID3D11Device*)renderingApi->GetDevice();
     if (!device) {
         SPDLOG_ERROR("Failed to retrieve D3D11 device from rendering API");
         return false;
@@ -233,6 +359,17 @@ bool VRRuntime::CreateSession() {
     }
 
     SPDLOG_INFO("OpenXR Session created!");
+
+    // Create Space
+    XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+    spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    XrResult resultSpace = xrCreateReferenceSpace(mSession, &spaceInfo, &mStageSpace);
+    if (XR_FAILED(resultSpace)) {
+        spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        xrCreateReferenceSpace(mSession, &spaceInfo, &mStageSpace);
+    }
+
     return true;
 }
 

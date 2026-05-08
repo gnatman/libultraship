@@ -1488,14 +1488,41 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             return;
         }
 
-        float x = v->ob[0] * mRsp->MP_matrix[0][0] + v->ob[1] * mRsp->MP_matrix[1][0] +
-                  v->ob[2] * mRsp->MP_matrix[2][0] + mRsp->MP_matrix[3][0];
-        float y = v->ob[0] * mRsp->MP_matrix[0][1] + v->ob[1] * mRsp->MP_matrix[1][1] +
-                  v->ob[2] * mRsp->MP_matrix[2][1] + mRsp->MP_matrix[3][1];
-        float z = v->ob[0] * mRsp->MP_matrix[0][2] + v->ob[1] * mRsp->MP_matrix[1][2] +
-                  v->ob[2] * mRsp->MP_matrix[2][2] + mRsp->MP_matrix[3][2];
-        float w = v->ob[0] * mRsp->MP_matrix[0][3] + v->ob[1] * mRsp->MP_matrix[1][3] +
-                  v->ob[2] * mRsp->MP_matrix[2][3] + mRsp->MP_matrix[3][3];
+        float x, y, z, w;
+
+        if (mVREnabled && (mRsp->geometry_mode & G_ZBUFFER)) {
+            // 1. Transform vertex to Game Camera Space using game's current ModelView
+            float* m = (float*)&mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1];
+            
+            // Row-vector multiplication: Vertex * ModelView
+            float cam_x = v->ob[0] * m[0] + v->ob[1] * m[4] + v->ob[2] * m[8] + m[12];
+            float cam_y = v->ob[0] * m[1] + v->ob[1] * m[5] + v->ob[2] * m[9] + m[13];
+            float cam_z = v->ob[0] * m[2] + v->ob[1] * m[6] + v->ob[2] * m[10] + m[14];
+            float cam_w = v->ob[0] * m[3] + v->ob[1] * m[7] + v->ob[2] * m[11] + m[15];
+
+            // 2. Apply VR View Matrix (Camera -> VR Eye)
+            float* vrV = (float*)mVROverrideView;
+            float eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8] + cam_w * vrV[12];
+            float eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9] + cam_w * vrV[13];
+            float eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10] + cam_w * vrV[14];
+            float eye_w = cam_x * vrV[3] + cam_y * vrV[7] + cam_z * vrV[11] + cam_w * vrV[15];
+
+            // 3. Apply VR Projection Matrix (VR Eye -> Clip)
+            float* vrP = (float*)mVROverrideProjection;
+            x = eye_x * vrP[0] + eye_y * vrP[4] + eye_z * vrP[8] + eye_w * vrP[12];
+            y = eye_x * vrP[1] + eye_y * vrP[5] + eye_z * vrP[9] + eye_w * vrP[13];
+            z = eye_x * vrP[2] + eye_y * vrP[6] + eye_z * vrP[10] + eye_w * vrP[14];
+            w = eye_x * vrP[3] + eye_y * vrP[7] + eye_z * vrP[11] + eye_w * vrP[15];
+        } else {
+            x = v->ob[0] * mRsp->MP_matrix[0][0] + v->ob[1] * mRsp->MP_matrix[1][0] +
+                v->ob[2] * mRsp->MP_matrix[2][0] + mRsp->MP_matrix[3][0];
+            y = v->ob[0] * mRsp->MP_matrix[0][1] + v->ob[1] * mRsp->MP_matrix[1][1] +
+                v->ob[2] * mRsp->MP_matrix[2][1] + mRsp->MP_matrix[3][1];
+            z = v->ob[0] * mRsp->MP_matrix[0][2] + v->ob[1] * mRsp->MP_matrix[1][2] +
+                v->ob[2] * mRsp->MP_matrix[2][2] + mRsp->MP_matrix[3][2];
+            w = v->ob[0] * mRsp->MP_matrix[0][3] + v->ob[1] * mRsp->MP_matrix[1][3] +
+                v->ob[2] * mRsp->MP_matrix[2][3] + mRsp->MP_matrix[3][3];
+        }
 
         float world_pos[3] = { 0.0 };
         if (mRsp->geometry_mode & G_LIGHTING_POSITIONAL) {

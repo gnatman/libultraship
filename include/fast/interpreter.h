@@ -547,6 +547,18 @@ class Interpreter {
     size_t mShadersIndex;
     int mInterpolationIndex;
     int mInterpolationIndexTarget;
+
+    bool mVREnabled = false;
+    float mVROverrideProjection[4][4];
+    float mVROverrideView[4][4];
+
+    void SetVRMatrices(bool enabled, const float* projection, const float* view) {
+        mVREnabled = enabled;
+        if (enabled) {
+            memcpy(mVROverrideProjection, projection, sizeof(mVROverrideProjection));
+            memcpy(mVROverrideView, view, sizeof(mVROverrideView));
+        }
+    }
 };
 
 void gfx_set_target_ucode(UcodeHandlers ucode);
