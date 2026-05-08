@@ -72,6 +72,10 @@ class Fast3dWindow : public Ship::Window {
     Ship::VRPose* GetVRPose() override;
 #endif
 
+    GfxRenderingAPI* GetRenderingApi() {
+        return mRenderingApi;
+    }
+
     std::string GetWindowBackendName() override;
 
     void SetCurrentDimensions(uint32_t width, uint32_t height) override;

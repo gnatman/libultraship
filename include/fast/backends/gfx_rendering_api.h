@@ -80,6 +80,13 @@ class GfxRenderingAPI {
     virtual ImTextureID GetTextureById(int id) = 0;
     virtual void SetCurrentPrimDepth(float depth) = 0;
 
+    virtual void* GetDevice() {
+        return nullptr;
+    }
+    virtual void* GetContext() {
+        return nullptr;
+    }
+
   protected:
     int8_t mCurrentDepthTest = 0;
     int8_t mCurrentDepthMask = 0;
