@@ -2237,6 +2237,17 @@ void Interpreter::AdjustVIewportOrScissor(XYWidthHeight* area) {
 }
 
 void Interpreter::CalcAndSetViewport(const F3DVp_t* viewport) {
+    if (mVREnabled) {
+        mRdp->viewport.x = 0;
+        mRdp->viewport.y = 0;
+        mRdp->viewport.width = mVROverrideWidth;
+        mRdp->viewport.height = mVROverrideHeight;
+        mRapi->SetViewport(0, 0, mVROverrideWidth, mVROverrideHeight);
+        mRenderingState.viewport = mRdp->viewport;
+        mRdp->viewport_or_scissor_changed = true;
+        return;
+    }
+
     // 2 bits fraction
     float width = 2.0f * viewport->vscale[0] / 4.0f;
     float height = 2.0f * viewport->vscale[1] / 4.0f;

@@ -228,23 +228,39 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 #ifdef ENABLE_VR
     if (Ship::VRToggle::IsVREnabled()) {
         auto runtime = Ship::VRRuntime::GetInstance();
-        if (runtime->IsInitialized()) {
-            for (int eye = 0; eye < 2; eye++) {
-                float proj[16];
-                float view[16];
-                runtime->GetProjectionMatrix(eye, proj, 1.0f, 20000.0f);
-                runtime->GetViewMatrix(eye, view);
-                
-                static int frameCounter = 0;
-                if (frameCounter % 200 == 0) {
-                    SPDLOG_INFO("Stereo Pass {} - Eye X: {:.4f}", eye, view[12]);
-                }
-                if (eye == 1) frameCounter++;
+        if (runtime->IsInitialized() && runtime->BeginFrame()) {
+            if (runtime->ShouldRender()) {
+                auto rapi = GetRenderingApi();
+                for (int eye = 0; eye < 2; eye++) {
+                    // 1. Acquire Image from VR Runtime
+                    uint32_t imgIdx = runtime->AcquireImage(eye);
+                    void* rtv = runtime->GetSwapchainRTV(eye, imgIdx);
+                    void* dsv = runtime->GetSwapchainDSV(eye, imgIdx);
+                    int32_t w, h;
+                    runtime->GetSwapchainDimensions(eye, &w, &h);
 
-                mInterpreter->SetVRMatrices(true, proj, view);
-                mInterpreter->Run(commands, mtxReplacements);
+                    // 2. Redirect Rendering
+                    rapi->SetOverrideRenderTarget(rtv, dsv, w, h);
+                    rapi->SetViewport(0, 0, w, h);
+                    rapi->SetScissor(0, 0, w, h);
+                    rapi->ClearFramebuffer(true, true);
+
+                    // 3. Set Matrices and Run
+                    float proj[16];
+                    float view[16];
+                    runtime->GetProjectionMatrix(eye, proj, 1.0f, 20000.0f);
+                    runtime->GetViewMatrix(eye, view);
+                    
+                    mInterpreter->SetVRMatrices(true, proj, view, w, h);
+                    mInterpreter->Run(commands, mtxReplacements);
+
+                    // 4. Release Image back to VR Runtime
+                    rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
+                    runtime->ReleaseImage(eye);
+                }
+                mInterpreter->SetVRMatrices(false, nullptr, nullptr, 0, 0);
             }
-            mInterpreter->SetVRMatrices(false, nullptr, nullptr);
+            runtime->EndFrame();
         } else {
             mInterpreter->Run(commands, mtxReplacements);
         }

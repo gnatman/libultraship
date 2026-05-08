@@ -6,6 +6,9 @@
 #include "../interpreter.h"
 #include <cstdint>
 #include <string>
+#include <map>
+#include <vector>
+#include <wrl/client.h>
 #include "gfx_rendering_api.h"
 #include "d3d11.h"
 #include "d3dcompiler.h"
@@ -126,6 +129,13 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
         return mContext.Get();
     }
 
+    void SetOverrideRenderTarget(void* rtv, void* dsv, int32_t width, int32_t height) override {
+        mOverrideRTV = (ID3D11RenderTargetView*)rtv;
+        mOverrideDSV = (ID3D11DepthStencilView*)dsv;
+        mOverrideWidth = width;
+        mOverrideHeight = height;
+    }
+
     PFN_D3D11_CREATE_DEVICE mDX11CreateDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mContext;
     Microsoft::WRL::ComPtr<ID3D11Device> mDevice;
@@ -192,6 +202,11 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     Microsoft::WRL::ComPtr<ID3D11SamplerState> mLastSamplerStates[SHADER_MAX_TEXTURES] = { nullptr, nullptr };
 
     D3D_PRIMITIVE_TOPOLOGY mLastPrimitaveTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+
+    ID3D11RenderTargetView* mOverrideRTV = nullptr;
+    ID3D11DepthStencilView* mOverrideDSV = nullptr;
+    int32_t mOverrideWidth = 0;
+    int32_t mOverrideHeight = 0;
 
     // Cached staging texture for ReadFramebufferToCPU — avoids CreateTexture2D/Release per frame
     Microsoft::WRL::ComPtr<ID3D11Texture2D> mReadbackStaging;

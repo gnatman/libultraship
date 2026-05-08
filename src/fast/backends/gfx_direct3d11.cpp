@@ -928,10 +928,15 @@ void GfxRenderingAPIDX11::UpdateFramebufferParameters(int fb_id, uint32_t width,
 
 void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     FramebufferDX11& fb = mFrameBuffers[fb_id];
-    mRenderTargetHeight = mTextures[fb.texture_id].height;
 
-    mContext->OMSetRenderTargets(1, fb.render_target_view.GetAddressOf(),
-                                 fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    if (mOverrideRTV != nullptr) {
+        mRenderTargetHeight = mOverrideHeight;
+        mContext->OMSetRenderTargets(1, &mOverrideRTV, mOverrideDSV);
+    } else {
+        mRenderTargetHeight = mTextures[fb.texture_id].height;
+        mContext->OMSetRenderTargets(1, fb.render_target_view.GetAddressOf(),
+                                     fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    }
 
     mCurrentFramebuffer = fb_id;
 
@@ -947,6 +952,17 @@ void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
 }
 
 void GfxRenderingAPIDX11::ClearFramebuffer(bool color, bool depth) {
+    if (mOverrideRTV != nullptr) {
+        if (color) {
+            const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            mContext->ClearRenderTargetView(mOverrideRTV, clearColor);
+        }
+        if (depth && mOverrideDSV != nullptr) {
+            mContext->ClearDepthStencilView(mOverrideDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        }
+        return;
+    }
+
     FramebufferDX11& fb = mFrameBuffers[mCurrentFramebuffer];
     if (color) {
         const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };

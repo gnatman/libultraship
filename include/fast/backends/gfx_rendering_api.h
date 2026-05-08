@@ -87,6 +87,9 @@ class GfxRenderingAPI {
         return nullptr;
     }
 
+    virtual void SetOverrideRenderTarget(void* rtv, void* dsv, int32_t width, int32_t height) {
+    }
+
   protected:
     int8_t mCurrentDepthTest = 0;
     int8_t mCurrentDepthMask = 0;

@@ -551,12 +551,16 @@ class Interpreter {
     bool mVREnabled = false;
     float mVROverrideProjection[4][4];
     float mVROverrideView[4][4];
+    int32_t mVROverrideWidth = 0;
+    int32_t mVROverrideHeight = 0;
 
-    void SetVRMatrices(bool enabled, const float* projection, const float* view) {
+    void SetVRMatrices(bool enabled, const float* projection, const float* view, int32_t width = 0, int32_t height = 0) {
         mVREnabled = enabled;
         if (enabled) {
             memcpy(mVROverrideProjection, projection, sizeof(mVROverrideProjection));
             memcpy(mVROverrideView, view, sizeof(mVROverrideView));
+            mVROverrideWidth = width;
+            mVROverrideHeight = height;
         }
     }
 };
