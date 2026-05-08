@@ -47,6 +47,12 @@ endif()
 
 add_subdirectory("fast")
 
+#=================== VR ===================
+
+file(GLOB Source_Files__VR RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "vr/*.cpp")
+source_group("vr" FILES ${Source_Files__VR})
+target_sources(libultraship PRIVATE ${Source_Files__VR})
+
 #=================== LUS ===================
 
 add_subdirectory("libultraship")

@@ -8,6 +8,10 @@
 union Gfx;
 #include "interpreter.h"
 
+namespace Ship {
+class MockVRPose;
+}
+
 namespace Fast {
 
 /**
@@ -64,6 +68,8 @@ class Fast3dWindow : public Ship::Window {
     uintptr_t GetGfxFrameBuffer() override;
     const char* GetKeyName(int32_t scancode) override;
 
+    Ship::VRPose* GetVRPose() override;
+
     std::string GetWindowBackendName() override;
 
     void SetCurrentDimensions(uint32_t width, uint32_t height) override;
@@ -101,5 +107,6 @@ class Fast3dWindow : public Ship::Window {
     GfxWindowBackend* mWindowManagerApi;
     std::shared_ptr<Interpreter> mInterpreter = nullptr;
     std::shared_ptr<GfxDebugger> mGfxDebugger;
+    std::shared_ptr<Ship::MockVRPose> mMockVRPose;
 };
 } // namespace Fast

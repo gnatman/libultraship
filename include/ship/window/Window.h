@@ -6,11 +6,15 @@
 #include <vector>
 #include <unordered_set>
 #include <spdlog/spdlog.h>
+#include "ship/window/VRPose.h"
 #include "ship/window/gui/Gui.h"
 #include "ship/window/MouseStateManager.h"
 #include "ship/controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 
 namespace Ship {
+
+/** @brief Identifies the graphics/windowing backend in use. */
+enum class WindowBackend { FAST3D_DXGI_DX11 = 1, FAST3D_SDL_OPENGL = 2, FAST3D_SDL_METAL = 3, WINDOW_BACKEND_COUNT };
 
 /** @brief Identifies the graphics/windowing backend in use.
  *
@@ -160,6 +164,11 @@ class Window {
     virtual const char* GetKeyName(int32_t scancode) = 0;
     /** @brief Returns a handle to the graphics API framebuffer object. */
     virtual uintptr_t GetGfxFrameBuffer() = 0;
+
+    /** @brief Returns the current VR pose, or nullptr if VR is not active. */
+    virtual VRPose* GetVRPose() {
+        return nullptr;
+    }
 
     /**
      * @brief Sets the window dimensions (size and position) and applies them immediately.

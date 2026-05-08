@@ -424,9 +424,11 @@ static LRESULT CALLBACK gfx_dxgi_wnd_proc(HWND h_wnd, UINT message, WPARAM w_par
                 self->mOnAllKeysUp();
             }
             break;
+        case WM_SYSKEYDOWN:
         case WM_KEYDOWN:
             self->OnKeydown(w_param, l_param);
             break;
+        case WM_SYSKEYUP:
         case WM_KEYUP:
             self->OnKeyup(w_param, l_param);
             break;

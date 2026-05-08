@@ -1,4 +1,5 @@
 #include "fast/Fast3dWindow.h"
+#include "vr/MockVRPose.h"
 
 #include "ship/Context.h"
 #include "ship/config/Config.h"
@@ -27,6 +28,7 @@ Fast3dWindow::Fast3dWindow(std::shared_ptr<Ship::Gui> gui, std::shared_ptr<FastM
     mRenderingApi = nullptr;
     mInterpreter = std::make_shared<Interpreter>();
     GfxSetInstance(mInterpreter);
+    mMockVRPose = std::make_shared<Ship::MockVRPose>();
 
 #ifdef _WIN32
     AddAvailableWindowBackend(WindowBackend::FAST3D_DXGI_DX11);
@@ -218,6 +220,9 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
 void Fast3dWindow::HandleEvents() {
     mWindowManagerApi->HandleEvents();
+    if (mMockVRPose) {
+        mMockVRPose->Update();
+    }
 }
 
 void Fast3dWindow::SetCursorVisibility(bool visible) {
@@ -342,7 +347,22 @@ const char* Fast3dWindow::GetKeyName(int32_t scancode) {
     return mWindowManagerApi->GetKeyName(scancode);
 }
 
+Ship::VRPose* Fast3dWindow::GetVRPose() {
+    if (mMockVRPose) {
+        return const_cast<Ship::VRPose*>(&mMockVRPose->GetPose());
+    }
+    return nullptr;
+}
+
 bool Fast3dWindow::KeyUp(int32_t scancode) {
+    auto wnd = Ship::Context::GetInstance()->GetWindow();
+    if (wnd) {
+        auto fastWnd = std::dynamic_pointer_cast<Fast3dWindow>(wnd);
+        if (fastWnd && fastWnd->mMockVRPose) {
+            fastWnd->mMockVRPose->ProcessKeyboardEvent(Ship::LUS_KB_EVENT_KEY_UP, static_cast<Ship::KbScancode>(scancode));
+        }
+    }
+
     if (scancode == Ship::Context::GetInstance()->GetWindow()->GetFullscreenScancode()) {
         Ship::Context::GetInstance()->GetWindow()->ToggleFullscreen();
     }
@@ -357,6 +377,14 @@ bool Fast3dWindow::KeyUp(int32_t scancode) {
 }
 
 bool Fast3dWindow::KeyDown(int32_t scancode) {
+    auto wnd = Ship::Context::GetInstance()->GetWindow();
+    if (wnd) {
+        auto fastWnd = std::dynamic_pointer_cast<Fast3dWindow>(wnd);
+        if (fastWnd && fastWnd->mMockVRPose) {
+            fastWnd->mMockVRPose->ProcessKeyboardEvent(Ship::LUS_KB_EVENT_KEY_DOWN, static_cast<Ship::KbScancode>(scancode));
+        }
+    }
+
     bool isProcessed = Ship::Context::GetInstance()->GetControlDeck()->ProcessKeyboardEvent(
         Ship::KbEventType::LUS_KB_EVENT_KEY_DOWN, static_cast<Ship::KbScancode>(scancode));
     Ship::Context::GetInstance()->GetWindow()->SetLastScancode(scancode);
@@ -365,6 +393,14 @@ bool Fast3dWindow::KeyDown(int32_t scancode) {
 }
 
 void Fast3dWindow::AllKeysUp() {
+    auto wnd = Ship::Context::GetInstance()->GetWindow();
+    if (wnd) {
+        auto fastWnd = std::dynamic_pointer_cast<Fast3dWindow>(wnd);
+        if (fastWnd && fastWnd->mMockVRPose) {
+            fastWnd->mMockVRPose->ProcessKeyboardEvent(Ship::LUS_KB_EVENT_ALL_KEYS_UP, Ship::LUS_KB_UNKNOWN);
+        }
+    }
+
     Ship::Context::GetInstance()->GetControlDeck()->ProcessKeyboardEvent(Ship::KbEventType::LUS_KB_EVENT_ALL_KEYS_UP,
                                                                          Ship::KbScancode::LUS_KB_UNKNOWN);
 }
