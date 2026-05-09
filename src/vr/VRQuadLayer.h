@@ -30,6 +30,7 @@ public:
     void* GetDSV(uint32_t index) const { return mDsvs[index]; }
     void GetDimensions(int32_t* w, int32_t* h) const { *w = mWidth; *h = mHeight; }
     XrSwapchain GetSwapchain() const { return mSwapchain; }
+    bool IsValid() const { return mSwapchain != XR_NULL_HANDLE; }
 
     uint32_t AcquireImage();
     void ReleaseImage();

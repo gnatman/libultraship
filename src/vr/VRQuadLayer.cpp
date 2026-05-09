@@ -49,7 +49,11 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
     createInfo.sampleCount = 1;
     createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 
-    xrCreateSwapchain(mSession, &createInfo, &mSwapchain);
+    XrResult res = xrCreateSwapchain(mSession, &createInfo, &mSwapchain);
+    if (XR_FAILED(res)) {
+        SPDLOG_ERROR("xrCreateSwapchain failed for Quad Layer: {}", (int)res);
+        return;
+    }
 
     uint32_t imageCount = 0;
     xrEnumerateSwapchainImages(mSwapchain, 0, &imageCount, nullptr);
@@ -57,6 +61,10 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
     xrEnumerateSwapchainImages(mSwapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)images.data());
 
     for (const auto& img : images) {
+        if (!img.texture) {
+            SPDLOG_ERROR("Acquired null texture from quad swapchain");
+            continue;
+        }
         mImages.push_back(img.texture);
 
         D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
@@ -64,8 +72,13 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
         rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 
         ID3D11RenderTargetView* rtv = nullptr;
-        device->CreateRenderTargetView(img.texture, &rtvDesc, &rtv);
-        mRtvs.push_back(rtv);
+        HRESULT hr = device->CreateRenderTargetView(img.texture, &rtvDesc, &rtv);
+        if (FAILED(hr)) {
+            SPDLOG_ERROR("Failed to create RTV for quad layer: 0x{:X}", (uint32_t)hr);
+            mRtvs.push_back(nullptr);
+        } else {
+            mRtvs.push_back(rtv);
+        }
 
         D3D11_TEXTURE2D_DESC depthDesc = {};
         depthDesc.Width = width;
@@ -78,11 +91,19 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
         depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 
         ID3D11Texture2D* depthTex = nullptr;
-        device->CreateTexture2D(&depthDesc, nullptr, &depthTex);
-        ID3D11DepthStencilView* dsv = nullptr;
-        device->CreateDepthStencilView(depthTex, nullptr, &dsv);
-        mDsvs.push_back(dsv);
-        depthTex->Release();
+        hr = device->CreateTexture2D(&depthDesc, nullptr, &depthTex);
+        if (SUCCEEDED(hr)) {
+            ID3D11DepthStencilView* dsv = nullptr;
+            hr = device->CreateDepthStencilView(depthTex, nullptr, &dsv);
+            if (SUCCEEDED(hr)) {
+                mDsvs.push_back(dsv);
+            } else {
+                mDsvs.push_back(nullptr);
+            }
+            depthTex->Release();
+        } else {
+            mDsvs.push_back(nullptr);
+        }
     }
 
     mPose = { {0, 0, 0, 1}, {0, 0, 0} };
@@ -98,6 +119,8 @@ VRQuadLayer::~VRQuadLayer() {
 }
 
 uint32_t VRQuadLayer::AcquireImage() {
+    if (mSwapchain == XR_NULL_HANDLE) return 0;
+
     uint32_t index = 0;
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     xrAcquireSwapchainImage(mSwapchain, &acquireInfo, &index);
@@ -108,6 +131,8 @@ uint32_t VRQuadLayer::AcquireImage() {
 }
 
 void VRQuadLayer::ReleaseImage() {
+    if (mSwapchain == XR_NULL_HANDLE) return;
+
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(mSwapchain, &releaseInfo);
 }

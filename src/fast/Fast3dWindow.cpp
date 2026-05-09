@@ -231,13 +231,13 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
         bool initialized = runtime->IsInitialized();
         bool beginFrameSuccess = false;
         
-        static int frameTrack = 0;
-        bool shouldRender = runtime->ShouldRender();
-        if (frameTrack++ % 500 == 0) {
-            SPDLOG_INFO("VR Path - Init: {}, State: {}, Render: {}", (int)initialized, (int)runtime->GetSessionState(), (int)shouldRender);
-        }
-
         if (initialized && (beginFrameSuccess = runtime->BeginFrame())) {
+            bool shouldRender = runtime->ShouldRender();
+            static int frameTrack = 0;
+            if (frameTrack++ % 500 == 0) {
+                SPDLOG_INFO("VR Path - Init: {}, State: {}, Render: {}", (int)initialized, (int)runtime->GetSessionState(), (int)shouldRender);
+            }
+
             if (shouldRender) {
                 auto rapi = GetRenderingApi();
                 
@@ -260,7 +260,9 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 int32_t hudW, hudH;
                 runtime->GetQuadDimensions(mVRHudLayerIndex, &hudW, &hudH);
 
-                mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
+                if (hudRtv) {
+                    mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
+                }
 
                 for (int eye = 0; eye < 2; eye++) {
                     // 1. Acquire Image from VR Runtime

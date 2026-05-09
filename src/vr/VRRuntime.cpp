@@ -236,7 +236,9 @@ void VRRuntime::EndFrame() {
         layers.push_back((XrCompositionLayerBaseHeader*)&projectionLayer);
 
         for (const auto& quad : mQuadLayers) {
-            quadLayerStructs.push_back(quad->GetCompositionLayer(mStageSpace));
+            if (quad && quad->IsValid()) {
+                quadLayerStructs.push_back(quad->GetCompositionLayer(mStageSpace));
+            }
         }
         for (size_t i = 0; i < quadLayerStructs.size(); i++) {
             layers.push_back((XrCompositionLayerBaseHeader*)&quadLayerStructs[i]);
@@ -575,10 +577,14 @@ void VRRuntime::ReleaseQuadImage(int layerIndex) {
 }
 
 void* VRRuntime::GetQuadRTV(int layerIndex, uint32_t imageIndex) const {
+    if (layerIndex < 0 || layerIndex >= (int)mQuadLayers.size()) return nullptr;
+    if (!mQuadLayers[layerIndex]->IsValid()) return nullptr;
     return mQuadLayers[layerIndex]->GetRTV(imageIndex);
 }
 
 void* VRRuntime::GetQuadDSV(int layerIndex, uint32_t imageIndex) const {
+    if (layerIndex < 0 || layerIndex >= (int)mQuadLayers.size()) return nullptr;
+    if (!mQuadLayers[layerIndex]->IsValid()) return nullptr;
     return mQuadLayers[layerIndex]->GetDSV(imageIndex);
 }
 
