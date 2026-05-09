@@ -231,6 +231,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
         bool initialized = runtime->IsInitialized();
         bool beginFrameSuccess = false;
         
+        mVRMirrorSRV = 0;
         if (initialized && (beginFrameSuccess = runtime->BeginFrame())) {
             bool shouldRender = runtime->ShouldRender();
             static int frameTrack = 0;
@@ -263,6 +264,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
                 if (hudRtv) {
                     mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
+                    mVRMirrorSRV = (uintptr_t)runtime->GetQuadSRV(mVRHudLayerIndex, hudImgIdx);
                 } else {
                     static int nullRtvCount = 0;
                     if (nullRtvCount++ % 1000 == 0) {
@@ -277,6 +279,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     // 1. Acquire Image from VR Runtime
                     uint32_t imgIdx = runtime->AcquireImage(eye);
                     eyeImgIdx[eye] = imgIdx;
+                    mVRImgAcquired[eye] = true;
                     void* rtv = runtime->GetSwapchainRTV(eye, imgIdx);
                     void* dsv = runtime->GetSwapchainDSV(eye, imgIdx);
                     int32_t w, h;
@@ -312,15 +315,13 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
                     // 4. Release Image back to VR Runtime
                     rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
-                    runtime->ReleaseImage(eye);
+                    if (eye == 0) {
+                        mVRMirrorSRV = (uintptr_t)runtime->GetSwapchainSRV(0, eyeImgIdx[0]);
+                    }
 
                     if (eye == 1) frameCounter++;
                 }
                 
-                // Desktop Mirror: Copy left eye to the window's backbuffer (fb 0)
-                void* mirrorTex = runtime->GetSwapchainImage(0, eyeImgIdx[0]);
-                rapi->CopyTextureToFramebuffer(mirrorTex, 0);
-
                 runtime->ReleaseQuadImage(mVRHudLayerIndex);
                 runtime->EndFrame();
 
@@ -328,6 +329,11 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 mInterpreter->mCurDimensions = originalDimensions;
                 mInterpreter->SetVRMatrices(false, nullptr, nullptr, 0, 0, nullptr, nullptr, 0);
                 mInterpreter->SetVRHudTarget(nullptr, nullptr, 0, 0);
+                
+                // Rebind the desktop framebuffer so that ImGui renders to the window and not the VR headset
+                rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
+                rapi->StartDrawToFramebuffer(0, 0.0f);
+                rapi->ClearFramebuffer(true, true);
             } else {
                 runtime->EndFrame();
             }
@@ -344,6 +350,20 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
     // Renders the game frame buffer to the final window and finishes the GUI
     gui->EndDraw();
+
+    // Now it's safe to release VR images after the desktop mirror (Gui) has finished drawing
+    if (Ship::VRToggle::IsVREnabled()) {
+        auto runtime = Ship::VRRuntime::GetInstance();
+        if (runtime->IsInitialized()) {
+            for (int i = 0; i < 2; i++) {
+                if (mVRImgAcquired[i]) {
+                    runtime->ReleaseImage(i);
+                    mVRImgAcquired[i] = false;
+                }
+            }
+        }
+    }
+
     // Finalize swap buffers
     mInterpreter->EndFrame();
 
@@ -473,6 +493,9 @@ bool Fast3dWindow::IsRunning() {
 }
 
 uintptr_t Fast3dWindow::GetGfxFrameBuffer() {
+    if (Ship::VRToggle::IsVREnabled()) {
+        return mVRMirrorSRV;
+    }
     return mInterpreter->mGfxFrameBuffer;
 }
 

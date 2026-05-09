@@ -136,8 +136,10 @@ void VRRuntime::Shutdown() {
         }
         for (auto rtv : mSwapchains[i].rtvs) if (rtv) rtv->Release();
         for (auto dsv : mSwapchains[i].dsvs) if (dsv) dsv->Release();
+        for (auto srv : mSwapchains[i].srvs) if (srv) srv->Release();
         mSwapchains[i].rtvs.clear();
         mSwapchains[i].dsvs.clear();
+        mSwapchains[i].srvs.clear();
         mSwapchains[i].images.clear();
     }
 
@@ -513,6 +515,15 @@ bool VRRuntime::CreateSwapchains() {
             device->CreateRenderTargetView(img.texture, &rtvDesc, &rtv);
             mSwapchains[i].rtvs.push_back(rtv);
 
+            D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+            srvDesc.Format = (DXGI_FORMAT)selectedFormat;
+            srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+            srvDesc.Texture2D.MipLevels = 1;
+            
+            ID3D11ShaderResourceView* srv = nullptr;
+            device->CreateShaderResourceView(img.texture, &srvDesc, &srv);
+            mSwapchains[i].srvs.push_back(srv);
+
             D3D11_TEXTURE2D_DESC depthDesc = {};
             depthDesc.Width = mSwapchains[i].width;
             depthDesc.Height = mSwapchains[i].height;
@@ -586,6 +597,12 @@ void* VRRuntime::GetQuadDSV(int layerIndex, uint32_t imageIndex) const {
     if (layerIndex < 0 || layerIndex >= (int)mQuadLayers.size()) return nullptr;
     if (!mQuadLayers[layerIndex]->IsValid()) return nullptr;
     return mQuadLayers[layerIndex]->GetDSV(imageIndex);
+}
+
+void* VRRuntime::GetQuadSRV(int layerIndex, uint32_t imageIndex) const {
+    if (layerIndex < 0 || layerIndex >= (int)mQuadLayers.size()) return nullptr;
+    if (!mQuadLayers[layerIndex]->IsValid()) return nullptr;
+    return mQuadLayers[layerIndex]->GetSRV(imageIndex);
 }
 
 void VRRuntime::GetQuadDimensions(int layerIndex, int32_t* w, int32_t* h) const {

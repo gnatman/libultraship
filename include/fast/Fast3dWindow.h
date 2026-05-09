@@ -115,5 +115,7 @@ class Fast3dWindow : public Ship::Window {
     std::shared_ptr<GfxDebugger> mGfxDebugger;
     std::shared_ptr<Ship::MockVRPose> mMockVRPose;
     int mVRHudLayerIndex = -1;
+    uintptr_t mVRMirrorSRV = 0;
+    bool mVRImgAcquired[2] = { false, false };
 };
 } // namespace Fast

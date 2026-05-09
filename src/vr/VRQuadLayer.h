@@ -28,6 +28,7 @@ public:
 
     void* GetRTV(uint32_t index) const { return mRtvs[index]; }
     void* GetDSV(uint32_t index) const { return mDsvs[index]; }
+    void* GetSRV(uint32_t index) const { return mSrvs[index]; }
     void GetDimensions(int32_t* w, int32_t* h) const { *w = mWidth; *h = mHeight; }
     XrSwapchain GetSwapchain() const { return mSwapchain; }
     bool IsValid() const { return mSwapchain != XR_NULL_HANDLE; }
@@ -48,6 +49,7 @@ private:
     std::vector<ID3D11Texture2D*> mImages;
     std::vector<ID3D11RenderTargetView*> mRtvs;
     std::vector<ID3D11DepthStencilView*> mDsvs;
+    std::vector<ID3D11ShaderResourceView*> mSrvs;
 
     XrPosef mPose;
     XrExtent2Df mSize;

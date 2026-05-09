@@ -80,6 +80,19 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
             mRtvs.push_back(rtv);
         }
 
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = format;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+
+        ID3D11ShaderResourceView* srv = nullptr;
+        hr = device->CreateShaderResourceView(img.texture, &srvDesc, &srv);
+        if (SUCCEEDED(hr)) {
+            mSrvs.push_back(srv);
+        } else {
+            mSrvs.push_back(nullptr);
+        }
+
         D3D11_TEXTURE2D_DESC depthDesc = {};
         depthDesc.Width = width;
         depthDesc.Height = height;
@@ -113,6 +126,7 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
 VRQuadLayer::~VRQuadLayer() {
     for (auto rtv : mRtvs) if (rtv) rtv->Release();
     for (auto dsv : mDsvs) if (dsv) dsv->Release();
+    for (auto srv : mSrvs) if (srv) srv->Release();
     if (mSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(mSwapchain);
     }

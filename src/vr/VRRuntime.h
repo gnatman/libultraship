@@ -48,6 +48,7 @@ public:
         std::vector<ID3D11Texture2D*> images;
         std::vector<ID3D11RenderTargetView*> rtvs;
         std::vector<ID3D11DepthStencilView*> dsvs;
+        std::vector<ID3D11ShaderResourceView*> srvs;
     };
 
     const VRPose& GetPose() const { return mCurrentPose; }
@@ -60,6 +61,7 @@ public:
     void* GetSwapchainRTV(int eye, uint32_t index) const { return mSwapchains[eye].rtvs[index]; }
     void* GetSwapchainDSV(int eye, uint32_t index) const { return mSwapchains[eye].dsvs[index]; }
     void* GetSwapchainImage(int eye, uint32_t index) const { return mSwapchains[eye].images[index]; }
+    void* GetSwapchainSRV(int eye, uint32_t index) const { return mSwapchains[eye].srvs[index]; }
     void GetSwapchainDimensions(int eye, int32_t* w, int32_t* h) const { *w = mSwapchains[eye].width; *h = mSwapchains[eye].height; }
 
     int CreateQuadLayer(int32_t width, int32_t height);
@@ -67,6 +69,7 @@ public:
     void ReleaseQuadImage(int layerIndex);
     void* GetQuadRTV(int layerIndex, uint32_t imageIndex) const;
     void* GetQuadDSV(int layerIndex, uint32_t imageIndex) const;
+    void* GetQuadSRV(int layerIndex, uint32_t imageIndex) const;
     void GetQuadDimensions(int layerIndex, int32_t* w, int32_t* h) const;
     void SetQuadPose(int layerIndex, XrPosef pose);
     void SetQuadSize(int layerIndex, XrExtent2Df size);
