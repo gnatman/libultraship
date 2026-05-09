@@ -646,6 +646,11 @@ void GfxRenderingAPIDX11::SetViewport(int x, int y, int width, int height) {
     viewport.MinDepth = 0.0f;
     viewport.MaxDepth = 1.0f;
 
+    static int vpCount = 0;
+    if (vpCount++ % 1000 == 0) {
+        SPDLOG_INFO("GfxRenderingAPIDX11::SetViewport - x: {}, y: {}, w: {}, h: {}", x, y, width, height);
+    }
+
     mContext->RSSetViewports(1, &viewport);
 }
 

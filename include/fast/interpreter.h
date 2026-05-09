@@ -556,6 +556,13 @@ class Interpreter {
     void* mVRRtv = nullptr;
     void* mVRDsv = nullptr;
     int mVRCurrentEye = 0;
+    enum VRPassType {
+        VR_PASS_INITIAL,
+        VR_PASS_BACKGROUND,
+        VR_PASS_WORLD,
+        VR_PASS_HUD
+    };
+    VRPassType mVRPassState = VR_PASS_INITIAL;
     bool mIsHudPass = false;
     void* mVRHudRtv = nullptr;
     void* mVRHudDsv = nullptr;
@@ -580,6 +587,10 @@ class Interpreter {
         mVRHudDsv = dsv;
         mVRHudWidth = width;
         mVRHudHeight = height;
+    }
+    
+    void SetCurrentEye(int eye) {
+        mVRCurrentEye = eye;
     }
 };
 

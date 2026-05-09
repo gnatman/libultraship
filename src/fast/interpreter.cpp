@@ -1430,24 +1430,61 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
                 // Ortho detection heuristic: P_matrix has zero perspective term.
                 // Perspective matrices typically have m[2][3] == -1 and m[3][3] == 0.
                 // Ortho matrices have m[2][3] == 0 and m[3][3] == 1.
-                bool isOrtho = (matrix[2][3] == 0.0f && matrix[3][3] == 1.0f);
+                // Use a small epsilon for floating point robustness across eyes.
+                bool isOrtho = (fabsf(matrix[2][3]) < 0.001f && fabsf(matrix[3][3] - 1.0f) < 0.001f);
                 
-                // Distinguish HUD from Skybox:
-                // HUD uses centered ortho (near=-1, far=1) -> m[3][2] == 0.0
-                // Skybox uses (near=0, far=5) -> m[3][2] == -1.0
-                // We route HUD to the Quad Layer and Skybox to the 3D Eye Buffers.
-                bool isHud = isOrtho && (matrix[3][2] == 0.0f);
+                bool isHud = false;
+                if (isOrtho) {
+                    // Distinguish HUD from Skybox/Background:
+                    // HUD uses centered ortho (near=-1, far=1) -> m[3][2] == 0.0
+                    // AND it must occur AFTER we've seen a perspective matrix (Phase 6 state machine).
+                    bool centered = (fabsf(matrix[3][2]) < 0.001f);
+                    if (centered && (mVRPassState == VR_PASS_WORLD || mVRPassState == VR_PASS_HUD)) {
+                        // Safety: Only treat as HUD pass if we have a valid target RTV.
+                        // If not, fall back to rendering into the 3D world buffer (ensures stereo visibility).
+                        if (mVRHudRtv != nullptr) {
+                            mVRPassState = VR_PASS_HUD;
+                            isHud = true;
+                        } else {
+                            mVRPassState = VR_PASS_WORLD;
+                            isHud = false;
+                        }
+                    } else {
+                        mVRPassState = VR_PASS_BACKGROUND;
+                        isHud = false;
+                    }
+                } else {
+                    // Perspective matrix -> we have entered the 3D world pass.
+                    mVRPassState = VR_PASS_WORLD;
+                    isHud = false;
+                }
+
+                static int lastEye = -1;
+                static int eyeOrthoCount = 0;
+                if (mVRCurrentEye != lastEye) {
+                    lastEye = mVRCurrentEye;
+                    eyeOrthoCount = 0;
+                }
+
+                if (eyeOrthoCount < 20) {
+                    SPDLOG_INFO("GfxSpMatrix - Eye: {}, Ortho: {}, Hud: {}, State: {}, m[3][2]: {:.6f}", 
+                        mVRCurrentEye, (int)isOrtho, (int)isHud, (int)mVRPassState, matrix[3][2]);
+                    eyeOrthoCount++;
+                }
 
                 if (isHud != mIsHudPass) {
                     Flush();
                     mIsHudPass = isHud;
                     
                     if (mIsHudPass) {
+                        SPDLOG_INFO("Switching to HUD target - Eye: {}, RTV: 0x{:X}", mVRCurrentEye, (uintptr_t)mVRHudRtv);
                         mRapi->SetOverrideRenderTarget(mVRHudRtv, mVRHudDsv, mVRHudWidth, mVRHudHeight);
                     } else {
+                        SPDLOG_INFO("Switching to 3D target - Eye: {}, RTV: 0x{:X}", mVRCurrentEye, (uintptr_t)mVRRtv);
                         mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
                     }
                 }
+
             }
         } else {
             MatrixMul(mRsp->P_matrix, matrix, mRsp->P_matrix);
@@ -5063,6 +5100,12 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
 
     mCurMtxReplacements = &mtx_replacements;
     mIsHudPass = false;
+    mVRPassState = VR_PASS_INITIAL;
+
+    if (mVREnabled) {
+        SPDLOG_INFO("Interpreter::Run - Eye: {}, RTV: {}, HUD RTV: {}", mVRCurrentEye, (uintptr_t)mVRRtv, (uintptr_t)mVRHudRtv);
+        mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+    }
 
     uint32_t width = mVREnabled ? (uint32_t)mVROverrideWidth : mGfxCurrentWindowDimensions.width;
     uint32_t height = mVREnabled ? (uint32_t)mVROverrideHeight : mGfxCurrentWindowDimensions.height;

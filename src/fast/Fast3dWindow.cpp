@@ -246,6 +246,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
                 if (mVRHudLayerIndex == -1) {
                     mVRHudLayerIndex = runtime->CreateQuadLayer(1280, 720);
+                    SPDLOG_INFO("Created VR HUD Quad Layer at index: {}", mVRHudLayerIndex);
                     
                     // Position HUD 1.2 meters in front
                     XrPosef pose = { {0, 0, 0, 1}, {0, 0, -1.2f} };
@@ -262,8 +263,15 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
                 if (hudRtv) {
                     mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
+                } else {
+                    static int nullRtvCount = 0;
+                    if (nullRtvCount++ % 1000 == 0) {
+                        SPDLOG_ERROR("VR HUD RTV is NULL for layer index: {}, image index: {}", mVRHudLayerIndex, hudImgIdx);
+                    }
+                    mInterpreter->SetVRHudTarget(nullptr, nullptr, 0, 0);
                 }
 
+                static int frameCounter = 0;
                 for (int eye = 0; eye < 2; eye++) {
                     // 1. Acquire Image from VR Runtime
                     uint32_t imgIdx = runtime->AcquireImage(eye);
@@ -271,6 +279,13 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     void* dsv = runtime->GetSwapchainDSV(eye, imgIdx);
                     int32_t w, h;
                     runtime->GetSwapchainDimensions(eye, &w, &h);
+
+                    // Update interpreter's eye state
+                    mInterpreter->SetCurrentEye(eye);
+
+                    if (frameCounter % 500 == 0) {
+                        SPDLOG_INFO("Fast3dWindow::Run - Eye: {}, Target: 0x{:X}, Res: {}x{}", eye, (uintptr_t)rtv, w, h);
+                    }
 
                     // 2. Redirect Rendering and STATE
                     rapi->SetOverrideRenderTarget(rtv, dsv, w, h);
