@@ -25,6 +25,8 @@
 #include <vector>
 
 #include "ship/Context.h"
+#include "ship/config/ConsoleVariable.h"
+#include "libultraship/bridge/consolevariablebridge.h"
 #include "fast/Fast3dWindow.h"
 #include "fast/backends/gfx_rendering_api.h"
 
@@ -310,9 +312,17 @@ void VRRuntime::GetViewMatrix(int eye, float* m) const {
     float rot[16];
     QuaternionToMatrix(mCurrentPose.eyes[eye].orientation, rot);
 
-    float x = mCurrentPose.eyes[eye].position[0];
-    float y = mCurrentPose.eyes[eye].position[1];
-    float z = mCurrentPose.eyes[eye].position[2];
+    float worldScale = CVarGetFloat("gVR.WorldScale", 1.0f);
+    float ipdScale = CVarGetFloat("gVR.IPDScale", 1.0f);
+
+    // Calculate eye position relative to head, apply IPD scale, then apply World scale
+    float ox = (mCurrentPose.eyes[eye].position[0] - mCurrentPose.head.position[0]) * ipdScale;
+    float oy = (mCurrentPose.eyes[eye].position[1] - mCurrentPose.head.position[1]) * ipdScale;
+    float oz = (mCurrentPose.eyes[eye].position[2] - mCurrentPose.head.position[2]) * ipdScale;
+
+    float x = (mCurrentPose.head.position[0] + ox) * worldScale;
+    float y = (mCurrentPose.head.position[1] + oy) * worldScale;
+    float z = (mCurrentPose.head.position[2] + oz) * worldScale;
 
     m[0] = rot[0]; m[1] = rot[4]; m[2] = rot[8];  m[3] = 0.0f;
     m[4] = rot[1]; m[5] = rot[5]; m[6] = rot[9];  m[7] = 0.0f;
@@ -483,9 +493,12 @@ bool VRRuntime::CreateSwapchains() {
     auto fastWindow = std::dynamic_pointer_cast<Fast::Fast3dWindow>(window);
     auto device = (ID3D11Device*)fastWindow->GetRenderingApi()->GetDevice();
 
+    float supersampling = CVarGetFloat("gVR.Supersampling", 1.0f);
+    int msaa = CVarGetInteger("gVR.MSAA", 1);
+
     for (int i = 0; i < 2; i++) {
-        mSwapchains[i].width = configViews[i].recommendedImageRectWidth;
-        mSwapchains[i].height = configViews[i].recommendedImageRectHeight;
+        mSwapchains[i].width = (int32_t)(configViews[i].recommendedImageRectWidth * supersampling);
+        mSwapchains[i].height = (int32_t)(configViews[i].recommendedImageRectHeight * supersampling);
 
         XrSwapchainCreateInfo createInfo = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
         createInfo.arraySize = 1;
@@ -494,7 +507,7 @@ bool VRRuntime::CreateSwapchains() {
         createInfo.height = mSwapchains[i].height;
         createInfo.mipCount = 1;
         createInfo.faceCount = 1;
-        createInfo.sampleCount = 1;
+        createInfo.sampleCount = (uint32_t)msaa;
         createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 
         xrCreateSwapchain(mSession, &createInfo, &mSwapchains[i].handle);
@@ -617,6 +630,8 @@ void VRRuntime::SetQuadSize(int layerIndex, XrExtent2Df size) {
     mQuadLayers[layerIndex]->SetSize(size);
 }
 
+#include <imgui.h>
+
 void VRRuntime::HandleSessionState(XrSessionState state) {
     mSessionState = state;
     SPDLOG_INFO("OpenXR Session State -> {}", (int)state);
@@ -627,6 +642,34 @@ void VRRuntime::HandleSessionState(XrSessionState state) {
     } else if (state == XR_SESSION_STATE_STOPPING) {
         xrEndSession(mSession);
     }
+}
+
+void VRRuntime::DrawPerformanceOverlay() {
+    if (!CVarGetInteger("gVR.PerformanceOverlay", 0)) return;
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::Begin("VR Performance", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing);
+    
+    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "VR SUBSYSTEM");
+    ImGui::Separator();
+    
+    ImGui::Text("Status: %s", mInitialized ? "Active" : "Inactive");
+    ImGui::Text("State: %d", (int)mSessionState);
+    
+    if (mInitialized) {
+        ImGui::Text("Eye Res: %d x %d", mSwapchains[0].width, mSwapchains[0].height);
+        ImGui::Text("MSAA: %u", mSwapchains[0].rtvs.empty() ? 1 : (uint32_t)CVarGetInteger("gVR.MSAA", 1));
+        
+        ImGui::Separator();
+        ImGui::Text("World Scale: %.2fx", CVarGetFloat("gVR.WorldScale", 1.0f));
+        ImGui::Text("IPD Scale: %.2fx", CVarGetFloat("gVR.IPDScale", 1.0f));
+        
+        if (!mQuadLayers.empty()) {
+            ImGui::Text("HUD Dist: %.2fm", CVarGetFloat("gVR.HUDDistance", 1.5f));
+        }
+    }
+    
+    ImGui::End();
 }
 
 } // namespace Ship

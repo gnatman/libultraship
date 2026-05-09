@@ -16,6 +16,10 @@
 #include "ship/window/gui/resource/GuiTextureFactory.h"
 #include "ship/window/gui/resource/GuiTexture.h"
 
+#ifdef ENABLE_VR
+#include "vr/VRRuntime.h"
+#endif
+
 namespace Ship {
 #define TOGGLE_BTN ImGuiKey_F1
 #define TOGGLE_PAD_BTN ImGuiKey_GamepadBack
@@ -279,6 +283,9 @@ void Gui::DrawGame() {
 }
 
 void Gui::DrawFloatingWindows() {
+#ifdef ENABLE_VR
+    VRRuntime::GetInstance()->DrawPerformanceOverlay();
+#endif
 }
 
 void Gui::CheckSaveCvars() {

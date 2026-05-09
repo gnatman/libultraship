@@ -7,6 +7,7 @@
 #include "ship/config/Config.h"
 #include "ship/controller/controldeck/ControlDeck.h"
 #include "ship/config/ConsoleVariable.h"
+#include "libultraship/bridge/consolevariablebridge.h"
 #include "fast/interpreter.h"
 #include "fast/backends/gfx_sdl.h"
 #include "fast/backends/gfx_dxgi.h"
@@ -248,13 +249,17 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 if (mVRHudLayerIndex == -1) {
                     mVRHudLayerIndex = runtime->CreateQuadLayer(1280, 720);
                     SPDLOG_INFO("Created VR HUD Quad Layer at index: {}", mVRHudLayerIndex);
-                    
-                    // Position HUD 1.2 meters in front
-                    XrPosef pose = { {0, 0, 0, 1}, {0, 0, -1.2f} };
-                    runtime->SetQuadPose(mVRHudLayerIndex, pose);
-                    XrExtent2Df size = { 1.6f, 0.9f }; // 16:9 aspect ratio
-                    runtime->SetQuadSize(mVRHudLayerIndex, size);
                 }
+
+                // Update HUD position and size from CVars
+                float hudDist = CVarGetFloat("gVR.HUDDistance", 1.5f);
+                float hudWidth = CVarGetFloat("gVR.HUDWidth", 1.0f);
+                float hudHeight = hudWidth * (720.0f / 1280.0f); // Match 16:9 aspect ratio
+
+                XrPosef pose = { {0, 0, 0, 1}, {0, 0, -hudDist} };
+                runtime->SetQuadPose(mVRHudLayerIndex, pose);
+                XrExtent2Df size = { hudWidth, hudHeight };
+                runtime->SetQuadSize(mVRHudLayerIndex, size);
 
                 uint32_t hudImgIdx = runtime->AcquireQuadImage(mVRHudLayerIndex);
                 void* hudRtv = runtime->GetQuadRTV(mVRHudLayerIndex, hudImgIdx);

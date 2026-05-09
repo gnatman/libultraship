@@ -40,6 +40,7 @@ public:
     XrInstance GetInstanceHandle() const { return mInstance; }
     XrSession GetSessionHandle() const { return mSession; }
     XrSessionState GetSessionState() const { return mSessionState; }
+    void DrawPerformanceOverlay();
 
     struct Swapchain {
         XrSwapchain handle;
