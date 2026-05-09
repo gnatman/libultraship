@@ -1581,10 +1581,21 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
 
             // 2. Apply VR View Matrix (Camera -> VR Eye)
             float* vrV = (float*)mVROverrideView;
-            float eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8] + cam_w * vrV[12];
-            float eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9] + cam_w * vrV[13];
-            float eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10] + cam_w * vrV[14];
-            float eye_w = cam_x * vrV[3] + cam_y * vrV[7] + cam_z * vrV[11] + cam_w * vrV[15];
+            float eye_x, eye_y, eye_z, eye_w;
+
+            if (mVRPassState == VR_PASS_BACKGROUND) {
+                // Rotation-only view for Skybox/Background (Sky is at infinity)
+                eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8];
+                eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9];
+                eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10];
+                eye_w = cam_w;
+            } else {
+                // Full view for World (Apply translation)
+                eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8] + cam_w * vrV[12];
+                eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9] + cam_w * vrV[13];
+                eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10] + cam_w * vrV[14];
+                eye_w = cam_x * vrV[3] + cam_y * vrV[7] + cam_z * vrV[11] + cam_w * vrV[15];
+            }
 
             // 3. Apply VR Projection Matrix (VR Eye -> Clip)
             float* vrP = (float*)mVROverrideProjection;
