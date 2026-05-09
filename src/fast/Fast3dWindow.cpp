@@ -274,7 +274,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     }
                     if (eye == 1) frameCounter++;
 
-                    mInterpreter->SetVRMatrices(true, proj, view, w, h);
+                    mInterpreter->SetVRMatrices(true, proj, view, w, h, rtv, dsv);
                     mInterpreter->Run(commands, mtxReplacements);
 
                     // 4. Release Image back to VR Runtime
@@ -284,7 +284,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 
                 // Restore original window dimensions
                 mInterpreter->mCurDimensions = originalDimensions;
-                mInterpreter->SetVRMatrices(false, nullptr, nullptr, 0, 0);
+                mInterpreter->SetVRMatrices(false, nullptr, nullptr, 0, 0, nullptr, nullptr);
             }
             runtime->EndFrame();
         } else {

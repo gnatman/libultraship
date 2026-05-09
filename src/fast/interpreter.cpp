@@ -62,9 +62,9 @@ std::stack<std::string> currentDir;
 
 // Ratios for current window dimensions or active framebuffer scaled size
 #define RATIO_X(activeFb, dims) \
-    ((mFbActive ? activeFb->second.applied_width : dims.width) / (2.0f * HALF_SCREEN_WIDTH(activeFb)))
+    ((mVREnabled ? dims.width : (mFbActive ? activeFb->second.applied_width : dims.width)) / (2.0f * HALF_SCREEN_WIDTH(activeFb)))
 #define RATIO_Y(activeFb, dims) \
-    ((mFbActive ? activeFb->second.applied_height : dims.height) / (2.0f * HALF_SCREEN_HEIGHT(activeFb)))
+    ((mVREnabled ? dims.height : (mFbActive ? activeFb->second.applied_height : dims.height)) / (2.0f * HALF_SCREEN_HEIGHT(activeFb)))
 
 #define TEXTURE_CACHE_MAX_SIZE 1024
 
@@ -5032,11 +5032,26 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
 
     mCurMtxReplacements = &mtx_replacements;
 
-    mRapi->UpdateFramebufferParameters(0, mGfxCurrentWindowDimensions.width, mGfxCurrentWindowDimensions.height, 1,
+    uint32_t width = mVREnabled ? (uint32_t)mVROverrideWidth : mGfxCurrentWindowDimensions.width;
+    uint32_t height = mVREnabled ? (uint32_t)mVROverrideHeight : mGfxCurrentWindowDimensions.height;
+
+    mRapi->UpdateFramebufferParameters(0, width, height, 1,
                                        false, true, true, !mRendersToFb);
     mRapi->StartFrame();
     mRapi->StartDrawToFramebuffer(mRendersToFb ? mGameFb : 0, (float)mCurDimensions.height / mNativeDimensions.height);
     mRapi->ClearFramebuffer(true, true);
+
+    // Reset RDP Viewport and Scissor to Native Full Screen
+    // These will be scaled by the next Flush() using mCurDimensions (which is VR resolution)
+    mRdp->viewport.x = 0;
+    mRdp->viewport.y = 0;
+    mRdp->viewport.width = mNativeDimensions.width;
+    mRdp->viewport.height = mNativeDimensions.height;
+    mRdp->scissor.x = 0;
+    mRdp->scissor.y = 0;
+    mRdp->scissor.width = mNativeDimensions.width;
+    mRdp->scissor.height = mNativeDimensions.height;
+
     mRdp->viewport_or_scissor_changed = true;
     mRenderingState.viewport = {};
     mRenderingState.scissor = {};
@@ -5067,7 +5082,10 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     mGfxFrameBuffer = 0;
     currentDir = std::stack<std::string>();
 
-    if (mRendersToFb) {
+    if (mVREnabled) {
+        // Skip PC resolve logic during VR stereoscopic passes to prevent 
+        // clearing the VR swapchain or copying PC-scaled buffers into it.
+    } else if (mRendersToFb) {
         mRapi->StartDrawToFramebuffer(0, 1);
         mRapi->ClearFramebuffer(true, true);
         if (mMsaaLevel > 1) {
@@ -5129,6 +5147,16 @@ int Interpreter::CreateFrameBuffer(uint32_t width, uint32_t height, uint32_t nat
 }
 
 void Interpreter::SetFrameBuffer(int fb, float noiseScale) {
+    if (mVREnabled) {
+        if (fb == (mRendersToFb ? mGameFb : 0)) {
+            // Restore VR override RTV when drawing to the main screen
+            mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+        } else {
+            // Disable VR override so the game can render to its internal textures
+            mRapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
+        }
+    }
+
     mRapi->StartDrawToFramebuffer(fb, noiseScale);
     mRapi->ClearFramebuffer(false, true);
 }
