@@ -1105,6 +1105,10 @@ void GfxRenderingAPIOGL::SetSrgbMode() {
 ImTextureID GfxRenderingAPIOGL::GetTextureById(int id) {
     return reinterpret_cast<ImTextureID>(id);
 }
+
+void GfxRenderingAPIOGL::CopyTextureToFramebuffer(void* texture, int fb_id) {
+    // No-op for now in OpenGL. VR is currently DX11-only.
+}
 } // namespace Fast
 #endif
 

@@ -111,6 +111,7 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
                          int dstX1, int dstY1) override;
     void ClearFramebuffer(bool color, bool depth) override;
     void ReadFramebufferToCPU(int fbId, uint32_t width, uint32_t height, uint16_t* rgba16Buf) override;
+    void CopyTextureToFramebuffer(void* texture, int fbId) override;
     void ResolveMSAAColorBuffer(int fbIdTarger, int fbIdSrc) override;
     std::unordered_map<std::pair<float, float>, uint16_t, hash_pair_ff>
     GetPixelDepth(int fb_id, const std::set<std::pair<float, float>>& coordinates) override;

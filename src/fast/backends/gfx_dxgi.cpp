@@ -34,6 +34,7 @@
 #include "fast/backends/gfx_screen_config.h"
 #include "fast/interpreter.h"
 #include "fast/Fast3dGui.h"
+#include "vr/VRToggle.h"
 
 #define DECLARE_GFX_DXGI_FUNCTIONS
 #include "fast/backends/gfx_dxgi.h"
@@ -917,37 +918,44 @@ bool GfxWindowBackendDXGI::IsFrameReady() {
 }
 
 void GfxWindowBackendDXGI::SwapBuffersBegin() {
+    bool vrActive = Ship::VRToggle::IsVREnabled();
+
     // mLengthInVsyncFrames (now mVsyncEnabled) was used as present interval. Present interval >1 (aka fractional
     // V-Sync) breaks VRR and introduces even more input lag than capping via normal V-Sync does. Get the present
     // interval the user wants instead (V-Sync toggle).
     mVsyncEnabled = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_VSYNC_ENABLED, 1) ? 1 : 0;
 
-    LARGE_INTEGER t;
-    QueryPerformanceCounter(&t);
-    int64_t next = qpc_to_100ns(mPreviousPresentTime.QuadPart) +
-                   FRAME_INTERVAL_NS_NUMERATOR / (FRAME_INTERVAL_NS_DENOMINATOR * 100);
-    int64_t left = next - qpc_to_100ns(t.QuadPart) - 15000UL;
-    if (left > 0) {
-        LARGE_INTEGER li;
-        li.QuadPart = -left;
-        SetWaitableTimer(mTimer, &li, 0, nullptr, nullptr, false);
-        WaitForSingleObject(mTimer, INFINITE);
-    }
+    if (!vrActive) {
+        LARGE_INTEGER t;
+        QueryPerformanceCounter(&t);
+        int64_t next = qpc_to_100ns(mPreviousPresentTime.QuadPart) +
+                       FRAME_INTERVAL_NS_NUMERATOR / (FRAME_INTERVAL_NS_DENOMINATOR * 100);
+        int64_t left = next - qpc_to_100ns(t.QuadPart) - 15000UL;
+        if (left > 0) {
+            LARGE_INTEGER li;
+            li.QuadPart = -left;
+            SetWaitableTimer(mTimer, &li, 0, nullptr, nullptr, false);
+            WaitForSingleObject(mTimer, INFINITE);
+        }
 
-    QueryPerformanceCounter(&t);
-    t.QuadPart = qpc_to_100ns(t.QuadPart);
-    while (t.QuadPart < next) {
-        YieldProcessor();
         QueryPerformanceCounter(&t);
         t.QuadPart = qpc_to_100ns(t.QuadPart);
+        while (t.QuadPart < next) {
+            YieldProcessor();
+            QueryPerformanceCounter(&t);
+            t.QuadPart = qpc_to_100ns(t.QuadPart);
+        }
+        QueryPerformanceCounter(&t);
+        mPreviousPresentTime = t;
     }
-    QueryPerformanceCounter(&t);
-    mPreviousPresentTime = t;
-    if (mTearingSupport && !mVsyncEnabled) {
+
+    if (mTearingSupport && (!mVsyncEnabled || vrActive)) {
         // 512: DXGI_PRESENT_ALLOW_TEARING - allows for true V-Sync off with flip model
-        ThrowIfFailed(swap_chain->Present(mVsyncEnabled, DXGI_PRESENT_ALLOW_TEARING));
+        // In VR, we always want tearing/no-vsync on the desktop mirror to avoid blocking the VR thread.
+        ThrowIfFailed(swap_chain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
     } else {
-        ThrowIfFailed(swap_chain->Present(mVsyncEnabled, 0));
+        // In VR, we force 0 present interval
+        ThrowIfFailed(swap_chain->Present(vrActive ? 0 : mVsyncEnabled, 0));
     }
 
     UINT this_present_id;

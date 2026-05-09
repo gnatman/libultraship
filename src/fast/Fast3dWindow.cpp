@@ -272,9 +272,11 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 }
 
                 static int frameCounter = 0;
+                uint32_t eyeImgIdx[2];
                 for (int eye = 0; eye < 2; eye++) {
                     // 1. Acquire Image from VR Runtime
                     uint32_t imgIdx = runtime->AcquireImage(eye);
+                    eyeImgIdx[eye] = imgIdx;
                     void* rtv = runtime->GetSwapchainRTV(eye, imgIdx);
                     void* dsv = runtime->GetSwapchainDSV(eye, imgIdx);
                     int32_t w, h;
@@ -302,21 +304,23 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     float view[16];
                     runtime->GetProjectionMatrix(eye, proj, 1.0f, 20000.0f);
                     runtime->GetViewMatrix(eye, view);
-                    
-                    static int frameCounter = 0;
-                    if (frameCounter % 500 == 0) {
-                        SPDLOG_INFO("Stereo Pass {} - Eye X: {:.4f}, VR Res: {}x{}", eye, view[12], w, h);
-                    }
-                    if (eye == 1) frameCounter++;
 
+                    // Update interpreter's eye state
+                    mInterpreter->SetCurrentEye(eye);
                     mInterpreter->SetVRMatrices(true, proj, view, w, h, rtv, dsv, eye);
                     mInterpreter->Run(commands, mtxReplacements);
 
                     // 4. Release Image back to VR Runtime
                     rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
                     runtime->ReleaseImage(eye);
+
+                    if (eye == 1) frameCounter++;
                 }
                 
+                // Desktop Mirror: Copy left eye to the window's backbuffer (fb 0)
+                void* mirrorTex = runtime->GetSwapchainImage(0, eyeImgIdx[0]);
+                rapi->CopyTextureToFramebuffer(mirrorTex, 0);
+
                 runtime->ReleaseQuadImage(mVRHudLayerIndex);
                 runtime->EndFrame();
 

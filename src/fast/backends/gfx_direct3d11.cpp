@@ -1064,6 +1064,19 @@ void GfxRenderingAPIDX11::CopyFramebuffer(int fb_dst_id, int fb_src_id, int srcX
     }
 }
 
+void GfxRenderingAPIDX11::CopyTextureToFramebuffer(void* texture, int fb_id) {
+    if (fb_id >= (int)mFrameBuffers.size()) {
+        return;
+    }
+
+    FramebufferDX11& fb = mFrameBuffers[fb_id];
+    TextureData& td = mTextures[fb.texture_id];
+
+    // Mirroring copy.
+    // Note: This assumes the source and destination have matching dimensions and format.
+    mContext->CopyResource(td.texture.Get(), (ID3D11Texture2D*)texture);
+}
+
 void GfxRenderingAPIDX11::ReadFramebufferToCPU(int fb_id, uint32_t width, uint32_t height, uint16_t* rgba16_buf) {
     if (fb_id >= (int)mFrameBuffers.size()) {
         return;

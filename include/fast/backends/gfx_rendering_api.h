@@ -79,6 +79,7 @@ class GfxRenderingAPI {
     virtual void SetSrgbMode() = 0;
     virtual ImTextureID GetTextureById(int id) = 0;
     virtual void SetCurrentPrimDepth(float depth) = 0;
+    virtual void CopyTextureToFramebuffer(void* texture, int fbId) = 0;
 
     virtual void* GetDevice() {
         return nullptr;
