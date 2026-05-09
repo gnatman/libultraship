@@ -297,32 +297,82 @@ void VRRuntime::GetProjectionMatrix(int eye, float* m, float nearZ, float farZ) 
 
 static void QuaternionToMatrix(const float* q, float* m) {
     float x = q[0], y = q[1], z = q[2], w = q[3];
-    float x2 = x + x, y2 = y + y, z2 = z + z;
-    float xx = x * x2, xy = x * y2, xz = x * z2;
-    float yy = y * y2, yz = y * z2, zz = z * z2;
-    float wx = w * x2, wy = w * y2, wz = w * z2;
+    m[0] = 1 - 2 * (y * y + z * z); m[1] = 2 * (x * y - z * w);     m[2] = 2 * (x * z + y * w);     m[3] = 0;
+    m[4] = 2 * (x * y + z * w);     m[5] = 1 - 2 * (x * x + z * z); m[6] = 2 * (y * z - x * w);     m[7] = 0;
+    m[8] = 2 * (x * z - y * w);     m[9] = 2 * (y * z + x * w);     m[10] = 1 - 2 * (x * x + y * y); m[11] = 0;
+    m[12] = 0;                      m[13] = 0;                      m[14] = 0;                      m[15] = 1;
+}
 
-    m[0] = 1.0f - (yy + zz); m[1] = xy + wz;          m[2] = xz - wy;          m[3] = 0.0f;
-    m[4] = xy - wz;          m[5] = 1.0f - (xx + zz); m[6] = yz + wx;          m[7] = 0.0f;
-    m[8] = xz + wy;          m[9] = yz - wx;          m[10] = 1.0f - (xx + yy); m[11] = 0.0f;
-    m[12] = 0.0f;             m[13] = 0.0f;             m[14] = 0.0f;             m[15] = 1.0f;
+static void QuaternionMultiply(const float* q1, const float* q2, float* out) {
+    out[0] = q1[3] * q2[0] + q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1];
+    out[1] = q1[3] * q2[1] + q1[1] * q2[3] + q1[2] * q2[0] - q1[0] * q2[2];
+    out[2] = q1[3] * q2[2] + q1[2] * q2[3] + q1[0] * q2[1] - q1[1] * q2[0];
+    out[3] = q1[3] * q2[3] - q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2];
+}
+
+static void QuaternionRotateVector(const float* q, const float* v, float* out) {
+    float qv[4] = { v[0], v[1], v[2], 0.0f };
+    float q_inv[4] = { -q[0], -q[1], -q[2], q[3] };
+    float tmp[4];
+    QuaternionMultiply(q, qv, tmp);
+    QuaternionMultiply(tmp, q_inv, qv);
+    out[0] = qv[0];
+    out[1] = qv[1];
+    out[2] = qv[2];
+}
+
+void VRRuntime::SetBaseTrackingSpace(const float* pos, const float* rotQuat) {
+    mBasePosition[0] = pos[0];
+    mBasePosition[1] = pos[1];
+    mBasePosition[2] = pos[2];
+    mBaseRotation[0] = rotQuat[0];
+    mBaseRotation[1] = rotQuat[1];
+    mBaseRotation[2] = rotQuat[2];
+    mBaseRotation[3] = rotQuat[3];
 }
 
 void VRRuntime::GetViewMatrix(int eye, float* m) const {
-    float rot[16];
-    QuaternionToMatrix(mCurrentPose.eyes[eye].orientation, rot);
-
     float worldScale = CVarGetFloat("gVR.WorldScale", 1.0f);
     float ipdScale = CVarGetFloat("gVR.IPDScale", 1.0f);
 
-    // Calculate eye position relative to head, apply IPD scale, then apply World scale
-    float ox = (mCurrentPose.eyes[eye].position[0] - mCurrentPose.head.position[0]) * ipdScale;
-    float oy = (mCurrentPose.eyes[eye].position[1] - mCurrentPose.head.position[1]) * ipdScale;
-    float oz = (mCurrentPose.eyes[eye].position[2] - mCurrentPose.head.position[2]) * ipdScale;
+    // 1. Calculate eye rotation in world space: Q_world = Q_base * Q_eye_local
+    float q_eye_world[4];
+    QuaternionMultiply(mBaseRotation, mCurrentPose.eyes[eye].orientation, q_eye_world);
 
-    float x = (mCurrentPose.head.position[0] + ox) * worldScale;
-    float y = (mCurrentPose.head.position[1] + oy) * worldScale;
-    float z = (mCurrentPose.head.position[2] + oz) * worldScale;
+    // 2. Convert to matrix (this handles the rotation part of the view matrix)
+    float rot[16];
+    QuaternionToMatrix(q_eye_world, rot);
+
+    // 3. Calculate eye position in world space
+    // Eye offset relative to head center in tracking space (scaled by IPD)
+    float eyeOffsetLocal[3] = {
+        (mCurrentPose.eyes[eye].position[0] - mCurrentPose.head.position[0]) * ipdScale,
+        (mCurrentPose.eyes[eye].position[1] - mCurrentPose.head.position[1]) * ipdScale,
+        (mCurrentPose.eyes[eye].position[2] - mCurrentPose.head.position[2]) * ipdScale
+    };
+
+    // Head position in tracking space scaled by world scale
+    float headPosLocalScaled[3] = {
+        mCurrentPose.head.position[0] * worldScale,
+        mCurrentPose.head.position[1] * worldScale,
+        mCurrentPose.head.position[2] * worldScale
+    };
+
+    // Total local eye position relative to tracking origin
+    float eyePosLocal[3] = {
+        headPosLocalScaled[0] + eyeOffsetLocal[0],
+        headPosLocalScaled[1] + eyeOffsetLocal[1],
+        headPosLocalScaled[2] + eyeOffsetLocal[2]
+    };
+
+    // Rotate local eye position by base rotation
+    float eyePosWorldOffset[3];
+    QuaternionRotateVector(mBaseRotation, eyePosLocal, eyePosWorldOffset);
+
+    // Add base position to get final world position
+    float x = mBasePosition[0] + eyePosWorldOffset[0];
+    float y = mBasePosition[1] + eyePosWorldOffset[1];
+    float z = mBasePosition[2] + eyePosWorldOffset[2];
 
     m[0] = rot[0]; m[1] = rot[4]; m[2] = rot[8];  m[3] = 0.0f;
     m[4] = rot[1]; m[5] = rot[5]; m[6] = rot[9];  m[7] = 0.0f;

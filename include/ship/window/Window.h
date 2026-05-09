@@ -165,6 +165,14 @@ class Window {
     /** @brief Returns a handle to the graphics API framebuffer object. */
     virtual uintptr_t GetGfxFrameBuffer() = 0;
 
+    /**
+     * @brief Sets the base world-space origin and orientation for the VR tracking volume.
+     * @param pos     World-space position [x, y, z].
+     * @param rotQuat World-space orientation quaternion [x, y, z, w].
+     */
+    virtual void SetVRBaseTrackingSpace(const float* pos, const float* rotQuat) {
+    }
+
 #ifdef ENABLE_VR
     /** @brief Returns the current VR pose, or nullptr if VR is not active. */
     virtual VRPose* GetVRPose() {

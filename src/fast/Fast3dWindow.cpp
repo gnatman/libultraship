@@ -508,10 +508,22 @@ const char* Fast3dWindow::GetKeyName(int32_t scancode) {
     return mWindowManagerApi->GetKeyName(scancode);
 }
 
+void Fast3dWindow::SetVRBaseTrackingSpace(const float* pos, const float* rotQuat) {
 #ifdef ENABLE_VR
+    auto runtime = Ship::VRRuntime::GetInstance();
+    if (runtime->IsInitialized()) {
+        runtime->SetBaseTrackingSpace(pos, rotQuat);
+    }
+#endif
+}
+
+#ifdef ENABLE_VR
+#include "vr/VRRuntime.h"
+
 Ship::VRPose* Fast3dWindow::GetVRPose() {
-    if (mMockVRPose) {
-        return const_cast<Ship::VRPose*>(&mMockVRPose->GetPose());
+    auto runtime = Ship::VRRuntime::GetInstance();
+    if (runtime->IsInitialized()) {
+        return (Ship::VRPose*)&runtime->GetPose();
     }
     return nullptr;
 }

@@ -79,6 +79,8 @@ public:
     void EndFrame();
     bool ShouldRender() const { return mFrameState.shouldRender; }
 
+    void SetBaseTrackingSpace(const float* pos, const float* rotQuat);
+
 private:
     bool CreateInstance();
     bool CreateSession();
@@ -98,6 +100,9 @@ private:
     std::vector<XrView> mViews;
     Swapchain mSwapchains[2];
     std::vector<std::shared_ptr<VRQuadLayer>> mQuadLayers;
+
+    float mBasePosition[3] = { 0, 0, 0 };
+    float mBaseRotation[4] = { 0, 0, 0, 1 }; // Quaternion (x, y, z, w)
     
     static std::shared_ptr<VRRuntime> mInstancePtr;
 };
