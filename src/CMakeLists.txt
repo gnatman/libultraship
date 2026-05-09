@@ -51,6 +51,7 @@ add_subdirectory("fast")
 
 set(Source_Files__VR
     "vr/MockVRPose.cpp"
+    "vr/VRQuadLayer.cpp"
     "vr/VRRuntime.cpp"
     "vr/VRToggle.cpp"
 )

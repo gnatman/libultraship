@@ -1,6 +1,17 @@
 #pragma once
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <unknwn.h>
+#include <d3d11.h>
+#define XR_USE_PLATFORM_WIN32
+#define XR_USE_GRAPHICS_API_D3D11
+#endif
+
 #include <openxr/openxr.h>
+#include <openxr/openxr_platform.h>
 #include <vector>
 #include <memory>
 

@@ -1,18 +1,28 @@
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <unknwn.h>
+#include <d3d11.h>
+
+#ifndef XR_USE_PLATFORM_WIN32
 #define XR_USE_PLATFORM_WIN32
+#endif
+#ifndef XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D11
+#endif
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+
 #include "vr/VRRuntime.h"
-#ifdef _WIN32
-#include <d3d11.h>
-#endif
+#include "vr/VRQuadLayer.h"
 #include <spdlog/spdlog.h>
 #include <iostream>
 #include <cmath>
+#include <vector>
 
 #include "ship/Context.h"
 #include "fast/Fast3dWindow.h"
