@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include "ship/window/VRPose.h"
+#include "VRQuadLayer.h"
 
 struct ID3D11Texture2D;
 struct ID3D11RenderTargetView;
@@ -48,6 +49,15 @@ public:
     void* GetSwapchainDSV(int eye, uint32_t index) const { return mSwapchains[eye].dsvs[index]; }
     void GetSwapchainDimensions(int eye, int32_t* w, int32_t* h) const { *w = mSwapchains[eye].width; *h = mSwapchains[eye].height; }
 
+    int CreateQuadLayer(int32_t width, int32_t height);
+    uint32_t AcquireQuadImage(int layerIndex);
+    void ReleaseQuadImage(int layerIndex);
+    void* GetQuadRTV(int layerIndex, uint32_t imageIndex) const;
+    void* GetQuadDSV(int layerIndex, uint32_t imageIndex) const;
+    void GetQuadDimensions(int layerIndex, int32_t* w, int32_t* h) const;
+    void SetQuadPose(int layerIndex, XrPosef pose);
+    void SetQuadSize(int layerIndex, XrExtent2Df size);
+
     bool BeginFrame();
     void EndFrame();
     bool ShouldRender() const { return mFrameState.shouldRender; }
@@ -70,6 +80,7 @@ private:
     VRPose mCurrentPose;
     std::vector<XrView> mViews;
     Swapchain mSwapchains[2];
+    std::vector<std::shared_ptr<VRQuadLayer>> mQuadLayers;
     
     static std::shared_ptr<VRRuntime> mInstancePtr;
 };

@@ -1,11 +1,15 @@
-#include "vr/VRRuntime.h"
-#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <d3d11.h>
-#endif
+#include <unknwn.h>
 #define XR_USE_PLATFORM_WIN32
 #define XR_USE_GRAPHICS_API_D3D11
+#include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include "vr/VRRuntime.h"
+#ifdef _WIN32
+#include <d3d11.h>
+#endif
 #include <spdlog/spdlog.h>
 #include <iostream>
 #include <cmath>
@@ -190,8 +194,12 @@ void VRRuntime::EndFrame() {
     if (!mInitialized) return;
 
     std::vector<XrCompositionLayerBaseHeader*> layers;
-    XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+    XrCompositionLayerProjection projectionLayer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
     std::vector<XrCompositionLayerProjectionView> projectionViews(2, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW });
+    
+    // We use a static vector to ensure the quad layer structs stay valid until xrEndFrame returns
+    static std::vector<XrCompositionLayerQuad> quadLayerStructs;
+    quadLayerStructs.clear();
 
     if (mFrameState.shouldRender) {
         for (int i = 0; i < 2; i++) {
@@ -212,10 +220,17 @@ void VRRuntime::EndFrame() {
             projectionViews[i].subImage.imageRect.extent = { mSwapchains[i].width, mSwapchains[i].height };
         }
 
-        layer.space = mStageSpace;
-        layer.viewCount = 2;
-        layer.views = projectionViews.data();
-        layers.push_back((XrCompositionLayerBaseHeader*)&layer);
+        projectionLayer.space = mStageSpace;
+        projectionLayer.viewCount = 2;
+        projectionLayer.views = projectionViews.data();
+        layers.push_back((XrCompositionLayerBaseHeader*)&projectionLayer);
+
+        for (const auto& quad : mQuadLayers) {
+            quadLayerStructs.push_back(quad->GetCompositionLayer(mStageSpace));
+        }
+        for (size_t i = 0; i < quadLayerStructs.size(); i++) {
+            layers.push_back((XrCompositionLayerBaseHeader*)&quadLayerStructs[i]);
+        }
     }
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
@@ -533,6 +548,40 @@ void VRRuntime::ReleaseImage(int eye) {
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(mSwapchains[eye].handle, &releaseInfo);
+}
+
+int VRRuntime::CreateQuadLayer(int32_t width, int32_t height) {
+    auto layer = std::make_shared<VRQuadLayer>(mSession, width, height);
+    mQuadLayers.push_back(layer);
+    return (int)mQuadLayers.size() - 1;
+}
+
+uint32_t VRRuntime::AcquireQuadImage(int layerIndex) {
+    return mQuadLayers[layerIndex]->AcquireImage();
+}
+
+void VRRuntime::ReleaseQuadImage(int layerIndex) {
+    mQuadLayers[layerIndex]->ReleaseImage();
+}
+
+void* VRRuntime::GetQuadRTV(int layerIndex, uint32_t imageIndex) const {
+    return mQuadLayers[layerIndex]->GetRTV(imageIndex);
+}
+
+void* VRRuntime::GetQuadDSV(int layerIndex, uint32_t imageIndex) const {
+    return mQuadLayers[layerIndex]->GetDSV(imageIndex);
+}
+
+void VRRuntime::GetQuadDimensions(int layerIndex, int32_t* w, int32_t* h) const {
+    mQuadLayers[layerIndex]->GetDimensions(w, h);
+}
+
+void VRRuntime::SetQuadPose(int layerIndex, XrPosef pose) {
+    mQuadLayers[layerIndex]->SetPose(pose);
+}
+
+void VRRuntime::SetQuadSize(int layerIndex, XrExtent2Df size) {
+    mQuadLayers[layerIndex]->SetSize(size);
 }
 
 void VRRuntime::HandleSessionState(XrSessionState state) {

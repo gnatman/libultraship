@@ -555,8 +555,14 @@ class Interpreter {
     int32_t mVROverrideHeight = 0;
     void* mVRRtv = nullptr;
     void* mVRDsv = nullptr;
+    int mVRCurrentEye = 0;
+    bool mIsHudPass = false;
+    void* mVRHudRtv = nullptr;
+    void* mVRHudDsv = nullptr;
+    int32_t mVRHudWidth = 0;
+    int32_t mVRHudHeight = 0;
 
-    void SetVRMatrices(bool enabled, const float* projection, const float* view, int32_t width = 0, int32_t height = 0, void* rtv = nullptr, void* dsv = nullptr) {
+    void SetVRMatrices(bool enabled, const float* projection, const float* view, int32_t width = 0, int32_t height = 0, void* rtv = nullptr, void* dsv = nullptr, int eye = 0) {
         mVREnabled = enabled;
         if (enabled) {
             memcpy(mVROverrideProjection, projection, sizeof(mVROverrideProjection));
@@ -565,7 +571,15 @@ class Interpreter {
             mVROverrideHeight = height;
             mVRRtv = rtv;
             mVRDsv = dsv;
+            mVRCurrentEye = eye;
         }
+    }
+
+    void SetVRHudTarget(void* rtv, void* dsv, int32_t width, int32_t height) {
+        mVRHudRtv = rtv;
+        mVRHudDsv = dsv;
+        mVRHudWidth = width;
+        mVRHudHeight = height;
     }
 };
 

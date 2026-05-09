@@ -133,6 +133,13 @@ static constexpr float N64_PRIM_DEPTH_MAX = 32767.0f;
 
 void Interpreter::Flush() {
     if (mBufVboLen > 0) {
+        if (mVREnabled && mIsHudPass && mVRCurrentEye == 1) {
+            // Skip rendering HUD on the second eye pass to avoid redundant overdraw
+            mBufVboLen = 0;
+            mBufVboNumTris = 0;
+            return;
+        }
+
         mRapi->SetCurrentPrimDepth((float)mRdp->prim_depth / N64_PRIM_DEPTH_MAX);
         mRapi->DrawTriangles(mBufVbo, mBufVboLen, mBufVboNumTris);
         mBufVboLen = 0;
@@ -1418,6 +1425,30 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
     if (parameters & mtx_projection) {
         if (parameters & mtx_load) {
             memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
+
+            if (mVREnabled) {
+                // Ortho detection heuristic: P_matrix has zero perspective term.
+                // Perspective matrices typically have m[2][3] == -1 and m[3][3] == 0.
+                // Ortho matrices have m[2][3] == 0 and m[3][3] == 1.
+                bool isOrtho = (matrix[2][3] == 0.0f && matrix[3][3] == 1.0f);
+                
+                // Distinguish HUD from Skybox:
+                // HUD uses centered ortho (near=-1, far=1) -> m[3][2] == 0.0
+                // Skybox uses (near=0, far=5) -> m[3][2] == -1.0
+                // We route HUD to the Quad Layer and Skybox to the 3D Eye Buffers.
+                bool isHud = isOrtho && (matrix[3][2] == 0.0f);
+
+                if (isHud != mIsHudPass) {
+                    Flush();
+                    mIsHudPass = isHud;
+                    
+                    if (mIsHudPass) {
+                        mRapi->SetOverrideRenderTarget(mVRHudRtv, mVRHudDsv, mVRHudWidth, mVRHudHeight);
+                    } else {
+                        mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+                    }
+                }
+            }
         } else {
             MatrixMul(mRsp->P_matrix, matrix, mRsp->P_matrix);
         }
@@ -5031,6 +5062,7 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     mGetPixelDepthCached.clear();
 
     mCurMtxReplacements = &mtx_replacements;
+    mIsHudPass = false;
 
     uint32_t width = mVREnabled ? (uint32_t)mVROverrideWidth : mGfxCurrentWindowDimensions.width;
     uint32_t height = mVREnabled ? (uint32_t)mVROverrideHeight : mGfxCurrentWindowDimensions.height;
