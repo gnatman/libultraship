@@ -1511,7 +1511,7 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
 
         float x, y, z, w;
 
-        if (mVREnabled && !mInHudPass && (mRsp->geometry_mode & G_ZBUFFER)) {
+        if (mVREnabled && !mInHudPass) {
             // 1. Transform vertex to Game Camera Space using game's current ModelView
             float* m = (float*)&mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1];
             
@@ -1556,7 +1556,9 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             world_pos[2] = v->ob[0] * mtx[0][2] + v->ob[1] * mtx[1][2] + v->ob[2] * mtx[2][2] + mtx[3][2];
         }
 
-        x = AdjXForAspectRatio(x);
+        if (!(mVREnabled && !mInHudPass)) {
+            x = AdjXForAspectRatio(x);
+        }
 
         short U = v->tc[0] * mRsp->texture_scaling_factor.s >> 16;
         short V = v->tc[1] * mRsp->texture_scaling_factor.t >> 16;

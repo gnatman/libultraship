@@ -426,9 +426,9 @@ void VRRuntime::GetViewMatrix(int eye, float* m) const {
     // 3. Calculate eye position in world space
     // Eye offset relative to head center in tracking space (scaled by IPD)
     float eyeOffsetLocal[3] = {
-        (mCurrentPose.eyes[eye].position[0] - mCurrentPose.head.position[0]) * ipdScale,
-        (mCurrentPose.eyes[eye].position[1] - mCurrentPose.head.position[1]) * ipdScale,
-        (mCurrentPose.eyes[eye].position[2] - mCurrentPose.head.position[2]) * ipdScale
+        (mCurrentPose.eyes[eye].position[0] - mCurrentPose.head.position[0]) * ipdScale * worldScale,
+        (mCurrentPose.eyes[eye].position[1] - mCurrentPose.head.position[1]) * ipdScale * worldScale,
+        (mCurrentPose.eyes[eye].position[2] - mCurrentPose.head.position[2]) * ipdScale * worldScale
     };
 
     // Head position in tracking space scaled by world scale
