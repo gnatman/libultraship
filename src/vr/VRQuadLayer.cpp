@@ -28,17 +28,17 @@
 
 namespace Ship {
 
-VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
-    : mSession(session), mWidth(width), mHeight(height) {
+VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height, XrEyeVisibility visibility)
+    : mSession(session), mWidth(width), mHeight(height), mVisibility(visibility) {
     
     auto window = Context::GetInstance()->GetWindow();
     auto fastWindow = std::dynamic_pointer_cast<Fast::Fast3dWindow>(window);
     auto rapi = fastWindow->GetRenderingApi();
     ID3D11Device* device = (ID3D11Device*)rapi->GetDevice();
 
-    // Use a standard format that most runtimes support
-    DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
-
+    // Use SRGB format as it is explicitly supported by the runtime
+    DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    
     XrSwapchainCreateInfo createInfo = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
     createInfo.arraySize = 1;
     createInfo.format = format;
@@ -47,13 +47,15 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height)
     createInfo.mipCount = 1;
     createInfo.faceCount = 1;
     createInfo.sampleCount = 1;
-    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 
     XrResult res = xrCreateSwapchain(mSession, &createInfo, &mSwapchain);
     if (XR_FAILED(res)) {
         SPDLOG_ERROR("xrCreateSwapchain failed for Quad Layer: {}", (int)res);
         return;
     }
+    
+    spdlog::critical("Quad Layer Created - Visibility: {}, Handle: 0x{:X}", (int)mVisibility, (uintptr_t)mSwapchain);
 
     uint32_t imageCount = 0;
     xrEnumerateSwapchainImages(mSwapchain, 0, &imageCount, nullptr);
@@ -153,13 +155,15 @@ void VRQuadLayer::ReleaseImage() {
 
 XrCompositionLayerQuad VRQuadLayer::GetCompositionLayer(XrSpace space) const {
     XrCompositionLayerQuad layer = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+    layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     layer.space = space;
-    layer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    layer.eyeVisibility = mVisibility;
     layer.pose = mPose;
     layer.size = mSize;
     layer.subImage.swapchain = mSwapchain;
     layer.subImage.imageRect.offset = { 0, 0 };
     layer.subImage.imageRect.extent = { mWidth, mHeight };
+    layer.subImage.imageArrayIndex = 0;
     return layer;
 }
 

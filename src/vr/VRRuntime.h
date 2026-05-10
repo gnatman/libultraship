@@ -66,6 +66,7 @@ public:
     void GetSwapchainDimensions(int eye, int32_t* w, int32_t* h) const { *w = mSwapchains[eye].width; *h = mSwapchains[eye].height; }
 
     int CreateQuadLayer(int32_t width, int32_t height);
+    size_t GetQuadCount() const { return mQuadLayers.size(); }
     uint32_t AcquireQuadImage(int layerIndex);
     void ReleaseQuadImage(int layerIndex);
     void* GetQuadRTV(int layerIndex, uint32_t imageIndex) const;
@@ -94,8 +95,10 @@ private:
     XrSession mSession = XR_NULL_HANDLE;
     XrSessionState mSessionState = XR_SESSION_STATE_UNKNOWN;
     XrSpace mStageSpace = XR_NULL_HANDLE;
+    XrSpace mViewSpace = XR_NULL_HANDLE;
 
     XrFrameState mFrameState = { XR_TYPE_FRAME_STATE };
+    XrViewState mViewState = { XR_TYPE_VIEW_STATE };
     VRPose mCurrentPose;
     std::vector<XrView> mViews;
     Swapchain mSwapchains[2];
@@ -103,6 +106,7 @@ private:
 
     float mBasePosition[3] = { 0, 0, 0 };
     float mBaseRotation[4] = { 0, 0, 0, 1 }; // Quaternion (x, y, z, w)
+    uint32_t mFrameCounter = 0;
     
     static std::shared_ptr<VRRuntime> mInstancePtr;
 };

@@ -5,6 +5,8 @@ std::shared_ptr<Ship::CVar> CVarGet(const char* name) {
     return Ship::Context::GetInstance()->GetConsoleVariables()->Get(name);
 }
 
+#include <spdlog/spdlog.h>
+
 extern "C" {
 int32_t CVarGetInteger(const char* name, int32_t defaultValue) {
     return Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(name, defaultValue);
@@ -31,6 +33,7 @@ void CVarSetInteger(const char* name, int32_t value) {
 }
 
 void CVarSetFloat(const char* name, float value) {
+    spdlog::info("CVarSet: {} = {}", name, value);
     Ship::Context::GetInstance()->GetConsoleVariables()->SetFloat(name, value);
 }
 

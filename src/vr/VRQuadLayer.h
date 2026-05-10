@@ -23,7 +23,7 @@ namespace Ship {
 
 class VRQuadLayer {
 public:
-    VRQuadLayer(XrSession session, int32_t width, int32_t height);
+    VRQuadLayer(XrSession session, int32_t width, int32_t height, XrEyeVisibility visibility = XR_EYE_VISIBILITY_BOTH);
     ~VRQuadLayer();
 
     void* GetRTV(uint32_t index) const { return mRtvs[index]; }
@@ -46,6 +46,7 @@ private:
     XrSwapchain mSwapchain = XR_NULL_HANDLE;
     int32_t mWidth;
     int32_t mHeight;
+    XrEyeVisibility mVisibility;
     std::vector<ID3D11Texture2D*> mImages;
     std::vector<ID3D11RenderTargetView*> mRtvs;
     std::vector<ID3D11DepthStencilView*> mDsvs;

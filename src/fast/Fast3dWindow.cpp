@@ -236,7 +236,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
         if (initialized && (beginFrameSuccess = runtime->BeginFrame())) {
             bool shouldRender = runtime->ShouldRender();
             static int frameTrack = 0;
-            if (frameTrack++ % 500 == 0) {
+            if (frameTrack++ % 1000 == 0) {
                 SPDLOG_INFO("VR Path - Init: {}, State: {}, Render: {}", (int)initialized, (int)runtime->GetSessionState(), (int)shouldRender);
             }
 
@@ -246,17 +246,30 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 // Save original window dimensions
                 auto originalDimensions = mInterpreter->mCurDimensions;
 
+                if (mVRHudLayerIndex != -1 && runtime->GetQuadCount() == 0) {
+                    mVRHudLayerIndex = -1;
+                    SPDLOG_INFO("Resetting VR HUD Layer index due to empty runtime layers");
+                }
+
                 if (mVRHudLayerIndex == -1) {
                     mVRHudLayerIndex = runtime->CreateQuadLayer(1280, 720);
                     SPDLOG_INFO("Created VR HUD Quad Layer at index: {}", mVRHudLayerIndex);
+                    
+                    mVRHudFbId = rapi->CreateFramebuffer();
+                    rapi->UpdateFramebufferParameters(mVRHudFbId, 1280, 720, 1, false, true, true, false);
+                    SPDLOG_INFO("Created Native HUD Framebuffer with ID: {}", mVRHudFbId);
                 }
 
-                // Update HUD position and size from CVars
-                float hudDist = CVarGetFloat("gVR.HUDDistance", 1.5f);
-                float hudWidth = CVarGetFloat("gVR.HUDWidth", 1.0f);
+                // Update HUD position and size from CVars (with fallback)
+                auto cvars = Ship::Context::GetInstance()->GetConsoleVariables();
+                float hudDist = cvars->GetFloat("gVRHUDDistance", 1.5f);
+                if (hudDist == 1.5f) hudDist = cvars->GetFloat("gVR.HUDDistance", 1.5f);
+                
+                float hudWidth = cvars->GetFloat("gVRHUDWidth", 1.0f);
+                if (hudWidth == 1.0f) hudWidth = cvars->GetFloat("gVR.HUDWidth", 1.0f);
                 float hudHeight = hudWidth * (720.0f / 1280.0f); // Match 16:9 aspect ratio
 
-                XrPosef pose = { {0, 0, 0, 1}, {0, 0, -hudDist} };
+                XrPosef pose = { {0, 1, 0, 0}, {0, 0, -hudDist} };
                 runtime->SetQuadPose(mVRHudLayerIndex, pose);
                 XrExtent2Df size = { hudWidth, hudHeight };
                 runtime->SetQuadSize(mVRHudLayerIndex, size);
@@ -270,15 +283,8 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 if (hudRtv) {
                     mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
                     mVRMirrorSRV = (uintptr_t)runtime->GetQuadSRV(mVRHudLayerIndex, hudImgIdx);
-                } else {
-                    static int nullRtvCount = 0;
-                    if (nullRtvCount++ % 1000 == 0) {
-                        SPDLOG_ERROR("VR HUD RTV is NULL for layer index: {}, image index: {}", mVRHudLayerIndex, hudImgIdx);
-                    }
-                    mInterpreter->SetVRHudTarget(nullptr, nullptr, 0, 0);
                 }
 
-                static int frameCounter = 0;
                 uint32_t eyeImgIdx[2];
                 for (int eye = 0; eye < 2; eye++) {
                     // 1. Acquire Image from VR Runtime
@@ -293,10 +299,6 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     // Update interpreter's eye state
                     mInterpreter->SetCurrentEye(eye);
 
-                    if (frameCounter % 500 == 0) {
-                        SPDLOG_INFO("Fast3dWindow::Run - Eye: {}, Target: 0x{:X}, Res: {}x{}", eye, (uintptr_t)rtv, w, h);
-                    }
-
                     // 2. Redirect Rendering and STATE
                     rapi->SetOverrideRenderTarget(rtv, dsv, w, h);
                     rapi->SetViewport(0, 0, w, h);
@@ -307,6 +309,19 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     mInterpreter->mCurDimensions.width = w;
                     mInterpreter->mCurDimensions.height = h;
 
+                    // HUD pass - Only render once per frame (during the first eye pass)
+                    if (hudRtv && eye == 0) {
+                        mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
+                        
+                        // Tell the backend to formally start drawing to the HUD texture
+                        rapi->SetOverrideRenderTarget(hudRtv, hudDsv, hudW, hudH);
+                        rapi->StartDrawToFramebuffer(0, 0.0f);
+                        rapi->ClearFramebuffer(true, true);
+                    } else if (hudRtv) {
+                        // For the second eye, we must ensure we are NOT using the HUD RTV anymore
+                        mInterpreter->SetVRHudTarget(nullptr, nullptr, 0, 0);
+                    }
+
                     // 3. Set Matrices and Run
                     float proj[16];
                     float view[16];
@@ -316,7 +331,14 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     // Update interpreter's eye state
                     mInterpreter->SetCurrentEye(eye);
                     mInterpreter->SetVRMatrices(true, proj, view, w, h, rtv, dsv, eye);
+                    
                     mInterpreter->Run(commands, mtxReplacements);
+
+                    // Revert back to eye 3D target
+                    if (hudRtv) {
+                        rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
+                        rapi->StartDrawToFramebuffer(0, 0.0f);
+                    }
 
                     // 4. Release Image back to VR Runtime
                     rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
@@ -324,7 +346,11 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                         mVRMirrorSRV = (uintptr_t)runtime->GetSwapchainSRV(0, eyeImgIdx[0]);
                     }
 
-                    if (eye == 1) frameCounter++;
+                }
+                
+                for (int eye = 0; eye < 2; eye++) {
+                    runtime->ReleaseImage(eye);
+                    mVRImgAcquired[eye] = false;
                 }
                 
                 runtime->ReleaseQuadImage(mVRHudLayerIndex);

@@ -140,6 +140,7 @@ void Interpreter::Flush() {
             return;
         }
 
+
         mRapi->SetCurrentPrimDepth((float)mRdp->prim_depth / N64_PRIM_DEPTH_MAX);
         mRapi->DrawTriangles(mBufVbo, mBufVboLen, mBufVboNumTris);
         mBufVboLen = 0;
@@ -1437,8 +1438,9 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
                 if (isOrtho) {
                     // Distinguish HUD from Skybox/Background:
                     // HUD uses centered ortho (near=-1, far=1) -> m[3][2] == 0.0
-                    // AND it must occur AFTER we've seen a perspective matrix (Phase 6 state machine).
-                    bool centered = (fabsf(matrix[3][2]) < 0.001f);
+                    // We allow a small epsilon here to capture elements that might be slightly offset 
+                    // or use different near/far planes that still result in a 2D look.
+                    bool centered = (fabsf(matrix[3][2]) < 1.0f);
                     if (centered && (mVRPassState == VR_PASS_WORLD || mVRPassState == VR_PASS_HUD)) {
                         // Safety: Only treat as HUD pass if we have a valid target RTV.
                         // If not, fall back to rendering into the 3D world buffer (ensures stereo visibility).
@@ -1467,23 +1469,15 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
                 }
 
                 if (eyeOrthoCount < 20) {
-                    SPDLOG_INFO("GfxSpMatrix - Eye: {}, Ortho: {}, Hud: {}, State: {}, m[3][2]: {:.6f}", 
-                        mVRCurrentEye, (int)isOrtho, (int)isHud, (int)mVRPassState, matrix[3][2]);
+                    // SPDLOG_INFO("GfxSpMatrix - Eye: {}, Ortho: {}, Hud: {}, State: {}, m[3][2]: {:.6f}", 
+                    //     mVRCurrentEye, (int)isOrtho, (int)isHud, (int)mVRPassState, matrix[3][2]);
                     eyeOrthoCount++;
                 }
 
-                if (isHud != mIsHudPass) {
-                    Flush();
-                    mIsHudPass = isHud;
-                    
-                    if (mIsHudPass) {
-                        SPDLOG_INFO("Switching to HUD target - Eye: {}, RTV: 0x{:X}", mVRCurrentEye, (uintptr_t)mVRHudRtv);
-                        mRapi->SetOverrideRenderTarget(mVRHudRtv, mVRHudDsv, mVRHudWidth, mVRHudHeight);
-                    } else {
-                        SPDLOG_INFO("Switching to 3D target - Eye: {}, RTV: 0x{:X}", mVRCurrentEye, (uintptr_t)mVRRtv);
-                        mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+                    if (isHud != mIsHudPass) {
+                        Flush();
+                        mIsHudPass = isHud;
                     }
-                }
 
             }
         } else {
@@ -5114,7 +5108,6 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     mVRPassState = VR_PASS_INITIAL;
 
     if (mVREnabled) {
-        SPDLOG_INFO("Interpreter::Run - Eye: {}, RTV: {}, HUD RTV: {}", mVRCurrentEye, (uintptr_t)mVRRtv, (uintptr_t)mVRHudRtv);
         mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
     }
 

@@ -93,6 +93,43 @@ bool VRRuntime::Init() {
         return false;
     }
 
+    // Register CVars with defaults
+    auto cvars = Context::GetInstance()->GetConsoleVariables();
+    // VR CVars - Migration & Initialization
+    bool migrated = false;
+    auto cvars_ptr = Context::GetInstance()->GetConsoleVariables();
+    
+    auto migrate = [&](const char* oldName, const char* newName, float def) {
+        if (cvars_ptr->Get(oldName) != nullptr) {
+            float val = cvars_ptr->GetFloat(oldName, def);
+            cvars_ptr->SetFloat(newName, val);
+            cvars_ptr->ClearVariable(oldName);
+            SPDLOG_INFO("Migrated CVar {} -> {} (value: {})", oldName, newName, val);
+            migrated = true;
+        }
+    };
+
+    migrate("gVR.WorldScale", "gVRWorldScale", 1.0f);
+    migrate("gVR.IPDScale", "gVRIPDScale", 1.0f);
+    migrate("gVR.HUDDistance", "gVRHUDDistance", 1.5f);
+    migrate("gVR.HUDWidth", "gVRHUDWidth", 1.0f);
+    migrate("gVR.HUDScale", "gVRHUDScale", 1.0f);
+
+    if (migrated) {
+        cvars_ptr->Save();
+    }
+
+    CVarRegisterFloat("gVRWorldScale", 1.0f);
+    CVarRegisterFloat("gVRIPDScale", 1.0f);
+    CVarRegisterFloat("gVRHUDDistance", 1.5f);
+    CVarRegisterFloat("gVRHUDWidth", 1.0f);
+    CVarRegisterFloat("gVRHUDScale", 1.0f);
+    
+    spdlog::critical("VRRuntime Init Complete. Live Values - World: {}, IPD: {}", 
+        CVarGetFloat("gVRWorldScale", 1.0f), 
+        CVarGetFloat("gVRIPDScale", 1.0f));
+    cvars->RegisterInteger("gVRPerformanceOverlay", 0);
+
     // Get System
     XrSystemGetInfo systemInfo = { XR_TYPE_SYSTEM_GET_INFO };
     systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
@@ -145,6 +182,8 @@ void VRRuntime::Shutdown() {
         mSwapchains[i].images.clear();
     }
 
+    mQuadLayers.clear();
+
     if (mSession != XR_NULL_HANDLE) {
         xrDestroySession(mSession);
         mSession = XR_NULL_HANDLE;
@@ -183,6 +222,7 @@ void VRRuntime::Update() {
 
 bool VRRuntime::BeginFrame() {
     if (!mInitialized) return false;
+    mFrameCounter++;
 
     if (mSessionState < XR_SESSION_STATE_READY || mSessionState > XR_SESSION_STATE_FOCUSED) {
         return false;
@@ -209,39 +249,41 @@ void VRRuntime::EndFrame() {
 
     std::vector<XrCompositionLayerBaseHeader*> layers;
     XrCompositionLayerProjection projectionLayer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+    projectionLayer.layerFlags = 0;
+    projectionLayer.space = mStageSpace;
+    
     std::vector<XrCompositionLayerProjectionView> projectionViews(2, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW });
     
     // We use a static vector to ensure the quad layer structs stay valid until xrEndFrame returns
     static std::vector<XrCompositionLayerQuad> quadLayerStructs;
     quadLayerStructs.clear();
 
-    if (mFrameState.shouldRender) {
+    if (mFrameState.shouldRender && mStageSpace != XR_NULL_HANDLE) {
         for (int i = 0; i < 2; i++) {
-            if (i < (int)mViews.size()) {
-                projectionViews[i].pose = mViews[i].pose;
-            } else {
-                projectionViews[i].pose.position = { 0, 0, 0 };
-                projectionViews[i].pose.orientation = { 0, 0, 0, 1 };
-            }
-            
+            projectionViews[i].pose = mViews[i].pose;
             projectionViews[i].fov.angleLeft = mCurrentPose.fov[i].angleLeft;
             projectionViews[i].fov.angleRight = mCurrentPose.fov[i].angleRight;
             projectionViews[i].fov.angleUp = mCurrentPose.fov[i].angleUp;
             projectionViews[i].fov.angleDown = mCurrentPose.fov[i].angleDown;
-
             projectionViews[i].subImage.swapchain = mSwapchains[i].handle;
             projectionViews[i].subImage.imageRect.offset = { 0, 0 };
             projectionViews[i].subImage.imageRect.extent = { mSwapchains[i].width, mSwapchains[i].height };
+            projectionViews[i].subImage.imageArrayIndex = 0;
+
+            spdlog::critical("Eye {} - FOV: [{}, {}, {}, {}], Dim: {}x{}, Swapchain: 0x{:X}", 
+                i, projectionViews[i].fov.angleLeft, projectionViews[i].fov.angleRight, 
+                projectionViews[i].fov.angleUp, projectionViews[i].fov.angleDown,
+                mSwapchains[i].width, mSwapchains[i].height, (uintptr_t)mSwapchains[i].handle);
         }
 
-        projectionLayer.space = mStageSpace;
         projectionLayer.viewCount = 2;
         projectionLayer.views = projectionViews.data();
         layers.push_back((XrCompositionLayerBaseHeader*)&projectionLayer);
 
         for (const auto& quad : mQuadLayers) {
             if (quad && quad->IsValid()) {
-                quadLayerStructs.push_back(quad->GetCompositionLayer(mStageSpace));
+                auto layerStruct = quad->GetCompositionLayer(mViewSpace);
+                quadLayerStructs.push_back(layerStruct);
             }
         }
         for (size_t i = 0; i < quadLayerStructs.size(); i++) {
@@ -257,7 +299,7 @@ void VRRuntime::EndFrame() {
     
     XrResult res = xrEndFrame(mSession, &endInfo);
     if (XR_FAILED(res)) {
-        SPDLOG_ERROR("xrEndFrame failed with error: {}", (int)res);
+        SPDLOG_ERROR("xrEndFrame failed: {} (Tracked: {})", (int)res, (mViewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0);
     }
 }
 
@@ -331,9 +373,47 @@ void VRRuntime::SetBaseTrackingSpace(const float* pos, const float* rotQuat) {
     mBaseRotation[3] = rotQuat[3];
 }
 
+void VRRuntime::DrawPerformanceOverlay() {
+    auto cvars = Context::GetInstance()->GetConsoleVariables();
+    if (!cvars->GetInteger("gVRPerformanceOverlay", 0)) return;
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("VR Performance", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "VR RUNTIME STATUS");
+        ImGui::Separator();
+        ImGui::Text("Session State: %d", (int)mSessionState);
+        ImGui::Text("Eye Resolution: %dx%d", mSwapchains[0].width, mSwapchains[0].height);
+        ImGui::Text("World Scale: %.2fx", cvars->GetFloat("gVRWorldScale", 1.0f));
+        ImGui::Text("IPD Scale: %.2fx", cvars->GetFloat("gVRIPDScale", 1.0f));
+        
+        static float frameTimes[120] = {0};
+        static int offset = 0;
+        frameTimes[offset] = ImGui::GetIO().DeltaTime * 1000.0f;
+        offset = (offset + 1) % 120;
+        
+        float avg = 0;
+        for (int i = 0; i < 120; i++) avg += frameTimes[i];
+        avg /= 120.0f;
+        
+        ImGui::Text("Avg Frame Time: %.2f ms (%.1f FPS)", avg, 1000.0f / avg);
+        ImGui::PlotLines("##FrameTimes", frameTimes, 120, offset, nullptr, 0.0f, 33.3f, ImVec2(0, 40));
+    }
+    ImGui::End();
+}
+
 void VRRuntime::GetViewMatrix(int eye, float* m) const {
-    float worldScale = CVarGetFloat("gVR.WorldScale", 1.0f);
-    float ipdScale = CVarGetFloat("gVR.IPDScale", 1.0f);
+    auto cvars = Context::GetInstance()->GetConsoleVariables();
+    
+    // Read CVars with fallback to old names if they somehow survived or new ones are default
+    float worldScale = CVarGetFloat("gVRWorldScale", 1.0f);
+    if (worldScale == 1.0f) worldScale = CVarGetFloat("gVR.WorldScale", 1.0f);
+
+    float ipdScale = CVarGetFloat("gVRIPDScale", 1.0f);
+    if (ipdScale == 1.0f) ipdScale = CVarGetFloat("gVR.IPDScale", 1.0f);
+
+    if (mFrameCounter % 500 == 0) {
+        spdlog::critical("VR Live Sync [{}]: World={}, IPD={}", mFrameCounter, worldScale, ipdScale);
+    }
 
     // 1. Calculate eye rotation in world space: Q_world = Q_base * Q_eye_local
     float q_eye_world[4];
@@ -391,11 +471,11 @@ void VRRuntime::UpdatePose(XrTime predictedTime) {
     locateInfo.space = mStageSpace;
 
     uint32_t viewCount = 0;
-    XrViewState viewState = { XR_TYPE_VIEW_STATE };
-    xrLocateViews(mSession, &locateInfo, &viewState, 0, &viewCount, nullptr);
+    mViewState.type = XR_TYPE_VIEW_STATE;
+    xrLocateViews(mSession, &locateInfo, &mViewState, 0, &viewCount, nullptr);
     
     mViews.assign(viewCount, { XR_TYPE_VIEW });
-    xrLocateViews(mSession, &locateInfo, &viewState, viewCount, &viewCount, mViews.data());
+    xrLocateViews(mSession, &locateInfo, &mViewState, viewCount, &viewCount, mViews.data());
 
     if (viewCount >= 2) {
         mCurrentPose.head.position[0] = (mViews[0].pose.position.x + mViews[1].pose.position.x) * 0.5f;
@@ -506,6 +586,9 @@ bool VRRuntime::CreateSession() {
         return false;
     }
 
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    xrCreateReferenceSpace(mSession, &spaceInfo, &mViewSpace);
+
     return true;
 }
 
@@ -543,8 +626,9 @@ bool VRRuntime::CreateSwapchains() {
     auto fastWindow = std::dynamic_pointer_cast<Fast::Fast3dWindow>(window);
     auto device = (ID3D11Device*)fastWindow->GetRenderingApi()->GetDevice();
 
-    float supersampling = CVarGetFloat("gVR.Supersampling", 1.0f);
-    int msaa = CVarGetInteger("gVR.MSAA", 1);
+    auto cvars = Context::GetInstance()->GetConsoleVariables();
+    float supersampling = cvars->GetFloat("gVRSupersampling", 1.0f);
+    int msaa = cvars->GetInteger("gVRMSAA", 1);
 
     for (int i = 0; i < 2; i++) {
         mSwapchains[i].width = (int32_t)(configViews[i].recommendedImageRectWidth * supersampling);
@@ -637,7 +721,7 @@ void VRRuntime::ReleaseImage(int eye) {
 }
 
 int VRRuntime::CreateQuadLayer(int32_t width, int32_t height) {
-    auto layer = std::make_shared<VRQuadLayer>(mSession, width, height);
+    auto layer = std::make_shared<VRQuadLayer>(mSession, width, height, XR_EYE_VISIBILITY_BOTH);
     mQuadLayers.push_back(layer);
     return (int)mQuadLayers.size() - 1;
 }
@@ -651,9 +735,22 @@ void VRRuntime::ReleaseQuadImage(int layerIndex) {
 }
 
 void* VRRuntime::GetQuadRTV(int layerIndex, uint32_t imageIndex) const {
-    if (layerIndex < 0 || layerIndex >= (int)mQuadLayers.size()) return nullptr;
-    if (!mQuadLayers[layerIndex]->IsValid()) return nullptr;
-    return mQuadLayers[layerIndex]->GetRTV(imageIndex);
+    if (layerIndex < 0 || layerIndex >= (int)mQuadLayers.size()) {
+        static int errCount = 0;
+        if (errCount++ % 500 == 0) SPDLOG_ERROR("GetQuadRTV: layerIndex {} out of bounds (size {})", layerIndex, mQuadLayers.size());
+        return nullptr;
+    }
+    if (!mQuadLayers[layerIndex]->IsValid()) {
+        static int errCount = 0;
+        if (errCount++ % 500 == 0) SPDLOG_ERROR("GetQuadRTV: layer {} is INVALID", layerIndex);
+        return nullptr;
+    }
+    void* rtv = mQuadLayers[layerIndex]->GetRTV(imageIndex);
+    if (!rtv) {
+        static int errCount = 0;
+        if (errCount++ % 500 == 0) SPDLOG_ERROR("GetQuadRTV: layer {} RTV for image {} is NULL", layerIndex, imageIndex);
+    }
+    return rtv;
 }
 
 void* VRRuntime::GetQuadDSV(int layerIndex, uint32_t imageIndex) const {
@@ -692,34 +789,6 @@ void VRRuntime::HandleSessionState(XrSessionState state) {
     } else if (state == XR_SESSION_STATE_STOPPING) {
         xrEndSession(mSession);
     }
-}
-
-void VRRuntime::DrawPerformanceOverlay() {
-    if (!CVarGetInteger("gVR.PerformanceOverlay", 0)) return;
-
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::Begin("VR Performance", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing);
-    
-    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "VR SUBSYSTEM");
-    ImGui::Separator();
-    
-    ImGui::Text("Status: %s", mInitialized ? "Active" : "Inactive");
-    ImGui::Text("State: %d", (int)mSessionState);
-    
-    if (mInitialized) {
-        ImGui::Text("Eye Res: %d x %d", mSwapchains[0].width, mSwapchains[0].height);
-        ImGui::Text("MSAA: %u", mSwapchains[0].rtvs.empty() ? 1 : (uint32_t)CVarGetInteger("gVR.MSAA", 1));
-        
-        ImGui::Separator();
-        ImGui::Text("World Scale: %.2fx", CVarGetFloat("gVR.WorldScale", 1.0f));
-        ImGui::Text("IPD Scale: %.2fx", CVarGetFloat("gVR.IPDScale", 1.0f));
-        
-        if (!mQuadLayers.empty()) {
-            ImGui::Text("HUD Dist: %.2fm", CVarGetFloat("gVR.HUDDistance", 1.5f));
-        }
-    }
-    
-    ImGui::End();
 }
 
 } // namespace Ship
