@@ -35,6 +35,20 @@ constexpr int8_t RDP_G_RDPLOADSYNC = OPCODE(0xe6);     /* -26 */
 constexpr int8_t RDP_G_TEXRECTFLIP = OPCODE(0xe5);     /* -27 */
 constexpr int8_t RDP_G_TEXRECT = OPCODE(0xe4);         /* -28 */
 
+/* ============================================================
+ *  Magic G_NOOP tag values reserved for libultraship runtime.
+ *
+ *  Game code emits these via gDPNoOpTag(pkt, TAG) into the F3DEX
+ *  display list. The interpreter's G_NOOP handler (gfx_noop_handler_*
+ *  in src/fast/interpreter.cpp) recognizes them and dispatches to
+ *  Window-level hooks. Tags outside this range are ignored.
+ *
+ *  Reserved range: 0x4C5553xx ('L','U','S', subcommand byte).
+ * ============================================================ */
+#define LUS_NOOP_TAG_VR_HUD_PASS_BEGIN 0x4C555301u
+#define LUS_NOOP_TAG_VR_HUD_PASS_END   0x4C555302u
+/* 0x4C555310 .. 0x4C5553FF reserved for future LUS state hooks. */
+
 // CUSTOM OTR COMMANDS
 constexpr int8_t OTR_G_SETTIMG_OTR_HASH = OPCODE(0x20);
 constexpr int8_t OTR_G_SETFB = OPCODE(0x21);

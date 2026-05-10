@@ -178,6 +178,23 @@ class Window {
     virtual VRPose* GetVRPose() {
         return nullptr;
     }
+
+    /**
+     * @brief Marks the start of a HUD rendering pass within the current display list.
+     *
+     * Called by the F3DEX interpreter when it encounters a
+     * LUS_NOOP_TAG_VR_HUD_PASS_BEGIN marker. While inside Begin/End, draws
+     * are routed to the VR HUD quad-layer framebuffer instead of the eye
+     * buffer. Calls nest: the Nth Begin matches the Nth End.
+     *
+     * Default implementation is a no-op. Fast3dWindow overrides for VR.
+     */
+    virtual void BeginVRHudPass() {
+    }
+
+    /** @brief Marks the end of the most recent HUD rendering pass. */
+    virtual void EndVRHudPass() {
+    }
 #endif
 
     /**

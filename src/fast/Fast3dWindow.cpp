@@ -251,39 +251,10 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     SPDLOG_INFO("Resetting VR HUD Layer index due to empty runtime layers");
                 }
 
-                if (mVRHudLayerIndex == -1) {
-                    mVRHudLayerIndex = runtime->CreateQuadLayer(1280, 720);
-                    SPDLOG_INFO("Created VR HUD Quad Layer at index: {}", mVRHudLayerIndex);
-                    
-                    mVRHudFbId = rapi->CreateFramebuffer();
-                    rapi->UpdateFramebufferParameters(mVRHudFbId, 1280, 720, 1, false, true, true, false);
-                    SPDLOG_INFO("Created Native HUD Framebuffer with ID: {}", mVRHudFbId);
-                }
-
-                // Update HUD position and size from CVars (with fallback)
-                auto cvars = Ship::Context::GetInstance()->GetConsoleVariables();
-                float hudDist = cvars->GetFloat("gVRHUDDistance", 1.5f);
-                if (hudDist == 1.5f) hudDist = cvars->GetFloat("gVR.HUDDistance", 1.5f);
-                
-                float hudWidth = cvars->GetFloat("gVRHUDWidth", 1.0f);
-                if (hudWidth == 1.0f) hudWidth = cvars->GetFloat("gVR.HUDWidth", 1.0f);
-                float hudHeight = hudWidth * (720.0f / 1280.0f); // Match 16:9 aspect ratio
-
-                XrPosef pose = { {0, 1, 0, 0}, {0, 0, -hudDist} };
-                runtime->SetQuadPose(mVRHudLayerIndex, pose);
-                XrExtent2Df size = { hudWidth, hudHeight };
-                runtime->SetQuadSize(mVRHudLayerIndex, size);
-
-                uint32_t hudImgIdx = runtime->AcquireQuadImage(mVRHudLayerIndex);
-                void* hudRtv = runtime->GetQuadRTV(mVRHudLayerIndex, hudImgIdx);
-                void* hudDsv = runtime->GetQuadDSV(mVRHudLayerIndex, hudImgIdx);
-                int32_t hudW, hudH;
-                runtime->GetQuadDimensions(mVRHudLayerIndex, &hudW, &hudH);
-
-                if (hudRtv) {
-                    mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
-                    mVRMirrorSRV = (uintptr_t)runtime->GetQuadSRV(mVRHudLayerIndex, hudImgIdx);
-                }
+                // Reset HUD pass state for the new frame.
+                mHudPassDepth = 0;
+                mHudWasClearedThisFrame = false;
+                mHudImageAcquiredThisFrame = false;
 
                 uint32_t eyeImgIdx[2];
                 for (int eye = 0; eye < 2; eye++) {
@@ -309,19 +280,6 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     mInterpreter->mCurDimensions.width = w;
                     mInterpreter->mCurDimensions.height = h;
 
-                    // HUD pass - Only render once per frame (during the first eye pass)
-                    if (hudRtv && eye == 0) {
-                        mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
-                        
-                        // Tell the backend to formally start drawing to the HUD texture
-                        rapi->SetOverrideRenderTarget(hudRtv, hudDsv, hudW, hudH);
-                        rapi->StartDrawToFramebuffer(0, 0.0f);
-                        rapi->ClearFramebuffer(true, true);
-                    } else if (hudRtv) {
-                        // For the second eye, we must ensure we are NOT using the HUD RTV anymore
-                        mInterpreter->SetVRHudTarget(nullptr, nullptr, 0, 0);
-                    }
-
                     // 3. Set Matrices and Run
                     float proj[16];
                     float view[16];
@@ -334,18 +292,11 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     
                     mInterpreter->Run(commands, mtxReplacements);
 
-                    // Revert back to eye 3D target
-                    if (hudRtv) {
-                        rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
-                        rapi->StartDrawToFramebuffer(0, 0.0f);
-                    }
-
                     // 4. Release Image back to VR Runtime
                     rapi->SetOverrideRenderTarget(nullptr, nullptr, 0, 0);
                     if (eye == 0) {
                         mVRMirrorSRV = (uintptr_t)runtime->GetSwapchainSRV(0, eyeImgIdx[0]);
                     }
-
                 }
                 
                 for (int eye = 0; eye < 2; eye++) {
@@ -353,7 +304,9 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                     mVRImgAcquired[eye] = false;
                 }
                 
-                runtime->ReleaseQuadImage(mVRHudLayerIndex);
+                if (mHudImageAcquiredThisFrame) {
+                    runtime->ReleaseQuadImage(mVRHudLayerIndex);
+                }
                 runtime->EndFrame();
 
                 // Restore original window dimensions
@@ -552,6 +505,168 @@ Ship::VRPose* Fast3dWindow::GetVRPose() {
         return (Ship::VRPose*)&runtime->GetPose();
     }
     return nullptr;
+}
+
+/* ============================================================
+ *  VR HUD pass — explicit hooks driven by display-list NOOP markers.
+ * ============================================================ */
+void Fast3dWindow::BeginVRHudPass() {
+    if (!Ship::VRToggle::IsVREnabled() || !mInterpreter) {
+        return;
+    }
+
+    // Lazy-create the persistent HUD quad layer and companion framebuffer.
+    constexpr int32_t HUD_W = 640;
+    constexpr int32_t HUD_H = 480;
+
+    // Save original dimensions on the first entry of the pass.
+    if (mHudPassDepth == 0) {
+        mSavedDims = mInterpreter->mCurDimensions;
+        mSavedCurrentEye = mInterpreter->GetCurrentEye();
+    }
+
+    // Override dimensions for ALL eyes. This is critical for internal scaling logic
+    // (RATIO_X/Y) to work correctly for HUD elements, even when draws are swallowed.
+    mInterpreter->mCurDimensions.width = HUD_W;
+    mInterpreter->mCurDimensions.height = HUD_H;
+    mInterpreter->mCurDimensions.aspect_ratio = (float)HUD_W / HUD_H;
+
+    if (mHudPassDepth++ > 0) {
+        return; // nested call; outermost handled the RTV swap
+    }
+
+    // The display list is walked once per eye. Render the HUD only on eye 0
+    // (it goes into the persistent quad layer once); subsequent eyes only
+    // need to swallow the redundant draws.
+    if (mInterpreter->GetCurrentEye() > 0) {
+        mInterpreter->mInHudPass = true;
+        return;
+    }
+
+    auto runtime = Ship::VRRuntime::GetInstance();
+    if (!runtime || !runtime->IsInitialized()) {
+        return;
+    }
+
+    auto rapi = GetRenderingApi();
+
+    if (mVRHudLayerIndex == -1) {
+        mVRHudLayerIndex = runtime->CreateQuadLayer(HUD_W, HUD_H);
+        SPDLOG_INFO("Created VR HUD quad layer at index {}", mVRHudLayerIndex);
+    }
+    if (mVRHudFbId == -1) {
+        mVRHudFbId = rapi->CreateFramebuffer();
+        rapi->UpdateFramebufferParameters(
+            mVRHudFbId, HUD_W, HUD_H, /*msaa*/1,
+            /*opengl_invertY*/false, /*render_target*/true,
+            /*has_depth_buffer*/true, /*can_extract_depth*/false);
+        SPDLOG_INFO("Created native HUD framebuffer with id {}", mVRHudFbId);
+    }
+
+    // Refresh pose + size from CVars every Begin (cheap; allows live tuning).
+    auto cvars = Ship::Context::GetInstance()->GetConsoleVariables();
+    const float hudDist  = cvars->GetFloat("gVRHUDDistance", 1.5f);
+    const float hudWidth = cvars->GetFloat("gVRHUDWidth",    1.0f);
+    const float hudHeight = hudWidth * (static_cast<float>(HUD_H) / HUD_W);
+
+    XrPosef pose = {};
+    pose.orientation = { 0.0f, 0.0f, 0.0f, 1.0f }; // identity → faces viewer
+    pose.position    = { 0.0f, 0.0f, -hudDist };   // -Z is forward in OpenXR
+    runtime->SetQuadPose(mVRHudLayerIndex, pose);
+
+    XrExtent2Df size = { hudWidth, hudHeight };
+    runtime->SetQuadSize(mVRHudLayerIndex, size);
+
+    // Acquire this frame's quad-layer swapchain image (once per frame).
+    if (!mHudImageAcquiredThisFrame) {
+        mVRHudImgIdx = runtime->AcquireQuadImage(mVRHudLayerIndex);
+        mHudImageAcquiredThisFrame = true;
+    }
+
+    void* hudRtv = runtime->GetQuadRTV(mVRHudLayerIndex, mVRHudImgIdx);
+    void* hudDsv = runtime->GetQuadDSV(mVRHudLayerIndex, mVRHudImgIdx);
+    if (!hudRtv) {
+        SPDLOG_WARN("BeginVRHudPass: HUD RTV unavailable; pass not entered");
+        --mHudPassDepth;
+        return;
+    }
+
+    int32_t hudW = 0, hudH = 0;
+    runtime->GetQuadDimensions(mVRHudLayerIndex, &hudW, &hudH);
+
+    // Flush any pending eye-buffer draws before swapping RTV.
+    mInterpreter->Flush();
+
+    // Save state so EndVRHudPass can restore it.
+    mSavedEyeRtv       = mInterpreter->GetCurrentRtv();
+    mSavedEyeDsv       = mInterpreter->GetCurrentDsv();
+    mSavedEyeRtvWidth  = mInterpreter->GetCurrentRtvWidth();
+    mSavedEyeRtvHeight = mInterpreter->GetCurrentRtvHeight();
+    mSavedViewport     = mInterpreter->mRdp->viewport;
+    mSavedScissor      = mInterpreter->mRdp->scissor;
+
+    // Swap to the HUD render target and reset its viewport.
+    rapi->SetOverrideRenderTarget(hudRtv, hudDsv, hudW, hudH);
+    rapi->StartDrawToFramebuffer(0, 0.0f); // Force backend to bind the new RTV
+
+    // Reset RDP state to the HUD quad dimensions (origin 0,0).
+    mInterpreter->mRdp->viewport = { 0, 0, (uint32_t)hudW, (uint32_t)hudH };
+    mInterpreter->mRdp->scissor  = { 0, 0, (uint32_t)hudW, (uint32_t)hudH };
+    rapi->SetViewport(0, 0, hudW, hudH);
+    rapi->SetScissor(0, 0, hudW, hudH);
+
+    if (!mHudWasClearedThisFrame) {
+        rapi->ClearFramebuffer(/*color*/true, /*depth*/true);
+        mHudWasClearedThisFrame = true;
+    }
+
+    mInterpreter->mInHudPass = true;
+}
+
+void Fast3dWindow::EndVRHudPass() {
+    if (!Ship::VRToggle::IsVREnabled() || !mInterpreter) {
+        return;
+    }
+    if (--mHudPassDepth > 0) {
+        return; // not outermost
+    }
+    if (mHudPassDepth < 0) {
+        SPDLOG_WARN("EndVRHudPass without matching Begin (depth went negative)");
+        mHudPassDepth = 0;
+        return;
+    }
+
+    // Crucial: Flush NOW while mInHudPass is still true!
+    // This ensures buffered draws are either rendered to the HUD RTV (eye 0) 
+    // or swallowed correctly (eye > 0).
+    mInterpreter->Flush();
+
+    if (mInterpreter->GetCurrentEye() > 0) {
+        mInterpreter->mInHudPass = false;
+        mInterpreter->mCurDimensions = mSavedDims; // Restore original dimensions
+        return;
+    }
+
+    // Outermost End on eye 0: restore eye RTV.
+    if (mSavedEyeRtv) {
+        auto rapi = GetRenderingApi();
+        rapi->SetOverrideRenderTarget(mSavedEyeRtv, mSavedEyeDsv,
+                                      mSavedEyeRtvWidth, mSavedEyeRtvHeight);
+        rapi->StartDrawToFramebuffer(0, 0.0f); // Restore backend binding
+        
+        // Restore previous viewport and scissor.
+        mInterpreter->mRdp->viewport = mSavedViewport;
+        mInterpreter->mRdp->scissor  = mSavedScissor;
+        rapi->SetViewport(mSavedViewport.x, mSavedViewport.y, 
+                          mSavedViewport.width, mSavedViewport.height);
+        rapi->SetScissor(mSavedScissor.x, mSavedScissor.y,
+                         mSavedScissor.width, mSavedScissor.height);
+    }
+    mInterpreter->mCurDimensions = mSavedDims;
+    mInterpreter->mInHudPass = false;
+
+    mSavedEyeRtv = nullptr;
+    mSavedEyeDsv = nullptr;
 }
 #endif
 

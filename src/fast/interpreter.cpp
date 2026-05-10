@@ -33,6 +33,7 @@
 #include "ship/resource/ResourceManager.h"
 #include "ship/utils/Utils.h"
 #include "ship/Context.h"
+#include "ship/window/Window.h"
 #include "ship/config/ConsoleVariable.h"
 
 #include "libultraship/libultra/os.h"
@@ -133,8 +134,9 @@ static constexpr float N64_PRIM_DEPTH_MAX = 32767.0f;
 
 void Interpreter::Flush() {
     if (mBufVboLen > 0) {
-        if (mVREnabled && mIsHudPass && mVRCurrentEye == 1) {
-            // Skip rendering HUD on the second eye pass to avoid redundant overdraw
+        if (mVREnabled && mInHudPass && mVRCurrentEye > 0) {
+            // HUD already rendered into the quad layer during eye 0;
+            // swallow redundant draws on subsequent eyes.
             mBufVboLen = 0;
             mBufVboNumTris = 0;
             return;
@@ -1426,60 +1428,6 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
     if (parameters & mtx_projection) {
         if (parameters & mtx_load) {
             memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
-
-            if (mVREnabled) {
-                // Ortho detection heuristic: P_matrix has zero perspective term.
-                // Perspective matrices typically have m[2][3] == -1 and m[3][3] == 0.
-                // Ortho matrices have m[2][3] == 0 and m[3][3] == 1.
-                // Use a small epsilon for floating point robustness across eyes.
-                bool isOrtho = (fabsf(matrix[2][3]) < 0.001f && fabsf(matrix[3][3] - 1.0f) < 0.001f);
-                
-                bool isHud = false;
-                if (isOrtho) {
-                    // Distinguish HUD from Skybox/Background:
-                    // HUD uses centered ortho (near=-1, far=1) -> m[3][2] == 0.0
-                    // We allow a small epsilon here to capture elements that might be slightly offset 
-                    // or use different near/far planes that still result in a 2D look.
-                    bool centered = (fabsf(matrix[3][2]) < 1.0f);
-                    if (centered && (mVRPassState == VR_PASS_WORLD || mVRPassState == VR_PASS_HUD)) {
-                        // Safety: Only treat as HUD pass if we have a valid target RTV.
-                        // If not, fall back to rendering into the 3D world buffer (ensures stereo visibility).
-                        if (mVRHudRtv != nullptr) {
-                            mVRPassState = VR_PASS_HUD;
-                            isHud = true;
-                        } else {
-                            mVRPassState = VR_PASS_WORLD;
-                            isHud = false;
-                        }
-                    } else {
-                        mVRPassState = VR_PASS_BACKGROUND;
-                        isHud = false;
-                    }
-                } else {
-                    // Perspective matrix -> we have entered the 3D world pass.
-                    mVRPassState = VR_PASS_WORLD;
-                    isHud = false;
-                }
-
-                static int lastEye = -1;
-                static int eyeOrthoCount = 0;
-                if (mVRCurrentEye != lastEye) {
-                    lastEye = mVRCurrentEye;
-                    eyeOrthoCount = 0;
-                }
-
-                if (eyeOrthoCount < 20) {
-                    // SPDLOG_INFO("GfxSpMatrix - Eye: {}, Ortho: {}, Hud: {}, State: {}, m[3][2]: {:.6f}", 
-                    //     mVRCurrentEye, (int)isOrtho, (int)isHud, (int)mVRPassState, matrix[3][2]);
-                    eyeOrthoCount++;
-                }
-
-                    if (isHud != mIsHudPass) {
-                        Flush();
-                        mIsHudPass = isHud;
-                    }
-
-            }
         } else {
             MatrixMul(mRsp->P_matrix, matrix, mRsp->P_matrix);
         }
@@ -1529,8 +1477,8 @@ float Interpreter::AdjXForAspectRatio(float x) const {
 // Scale the width and height value based on the ratio of the viewport to the native size
 void Interpreter::AdjustWidthHeightForScale(uint32_t& width, uint32_t& height, uint32_t nativeWidth,
                                             uint32_t nativeHeight) const {
-    float effectiveWidth = mVREnabled ? (float)mVROverrideWidth : (float)mCurDimensions.width;
-    float effectiveHeight = mVREnabled ? (float)mVROverrideHeight : (float)mCurDimensions.height;
+    float effectiveWidth = (mVREnabled && !mInHudPass) ? (float)mVROverrideWidth : (float)mCurDimensions.width;
+    float effectiveHeight = (mVREnabled && !mInHudPass) ? (float)mVROverrideHeight : (float)mCurDimensions.height;
 
     if (mVREnabled) {
         static int logCount = 0;
@@ -1563,7 +1511,7 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
 
         float x, y, z, w;
 
-        if (mVREnabled && (mRsp->geometry_mode & G_ZBUFFER)) {
+        if (mVREnabled && !mInHudPass && (mRsp->geometry_mode & G_ZBUFFER)) {
             // 1. Transform vertex to Game Camera Space using game's current ModelView
             float* m = (float*)&mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1];
             
@@ -1577,19 +1525,11 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             float* vrV = (float*)mVROverrideView;
             float eye_x, eye_y, eye_z, eye_w;
 
-            if (mVRPassState == VR_PASS_BACKGROUND) {
-                // Rotation-only view for Skybox/Background (Sky is at infinity)
-                eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8];
-                eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9];
-                eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10];
-                eye_w = cam_w;
-            } else {
-                // Full view for World (Apply translation)
-                eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8] + cam_w * vrV[12];
-                eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9] + cam_w * vrV[13];
-                eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10] + cam_w * vrV[14];
-                eye_w = cam_x * vrV[3] + cam_y * vrV[7] + cam_z * vrV[11] + cam_w * vrV[15];
-            }
+            // Full view for World (Apply translation)
+            eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8] + cam_w * vrV[12];
+            eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9] + cam_w * vrV[13];
+            eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10] + cam_w * vrV[14];
+            eye_w = cam_x * vrV[3] + cam_y * vrV[7] + cam_z * vrV[11] + cam_w * vrV[15];
 
             // 3. Apply VR Projection Matrix (VR Eye -> Clip)
             float* vrP = (float*)mVROverrideProjection;
@@ -2321,7 +2261,7 @@ void Interpreter::AdjustVIewportOrScissor(XYWidthHeight* area) {
 }
 
 void Interpreter::CalcAndSetViewport(const F3DVp_t* viewport) {
-    if (mVREnabled) {
+    if (mVREnabled && !mInHudPass) {
         mRdp->viewport.x = 0;
         mRdp->viewport.y = 0;
         mRdp->viewport.width = mVROverrideWidth;
@@ -3335,8 +3275,25 @@ bool gfx_invalidate_tex_cache_handler_f3dex2(F3DGfx** cmd) {
 
 bool gfx_noop_handler_f3dex2(F3DGfx** cmd0) {
     F3DGfx* cmd = *cmd0;
+    const uint32_t p = C0(16, 8);
+    const uint32_t w1 = static_cast<uint32_t>(cmd->words.w1);
+
+    // libultraship magic NOOP markers: emitted by gDPNoOpTag(pkt, TAG) with
+    // p == 0. Dispatch to Window-level VR HUD hooks if present.
+    if (p == 0 && (w1 == LUS_NOOP_TAG_VR_HUD_PASS_BEGIN || w1 == LUS_NOOP_TAG_VR_HUD_PASS_END)) {
+#ifdef ENABLE_VR
+        if (auto window = Ship::Context::GetInstance()->GetWindow()) {
+            if (w1 == LUS_NOOP_TAG_VR_HUD_PASS_BEGIN) {
+                window->BeginVRHudPass();
+            } else {
+                window->EndVRHudPass();
+            }
+        }
+#endif
+        return false;
+    }
+
     const char* filename = (const char*)(cmd)->words.w1;
-    uint32_t p = C0(16, 8);
     uint32_t l = C0(0, 16);
     if (p == 7) {
         g_exec_stack.openDisp(filename, l);
@@ -5104,8 +5061,7 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     mGetPixelDepthCached.clear();
 
     mCurMtxReplacements = &mtx_replacements;
-    mIsHudPass = false;
-    mVRPassState = VR_PASS_INITIAL;
+    mInHudPass = false;
 
     if (mVREnabled) {
         mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);

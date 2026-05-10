@@ -72,6 +72,8 @@ class Fast3dWindow : public Ship::Window {
 
 #ifdef ENABLE_VR
     Ship::VRPose* GetVRPose() override;
+    void BeginVRHudPass() override;
+    void EndVRHudPass() override;
 #endif
 
     GfxRenderingAPI* GetRenderingApi() {
@@ -118,6 +120,22 @@ class Fast3dWindow : public Ship::Window {
     std::shared_ptr<Ship::MockVRPose> mMockVRPose;
     int mVRHudLayerIndex = -1;
     int mVRHudFbId = -1;
+
+    // VR HUD pass state — owned by the window so Begin/End nesting balances
+    // correctly across the per-eye render loop.
+    int      mHudPassDepth      = 0;       // re-entrancy / nesting counter
+    void*    mSavedEyeRtv       = nullptr; // RTV active before Begin fired
+    void*    mSavedEyeDsv       = nullptr;
+    int32_t  mSavedEyeRtvWidth  = 0;
+    int32_t  mSavedEyeRtvHeight = 0;
+    GfxDimensions mSavedDims = {};
+    int      mSavedCurrentEye   = 0;
+    XYWidthHeight mSavedViewport = {};
+    XYWidthHeight mSavedScissor  = {};
+    bool     mHudWasClearedThisFrame = false;
+    bool     mHudImageAcquiredThisFrame = false;
+    uint32_t mVRHudImgIdx = 0;
+
     uintptr_t mVRMirrorSRV = 0;
     bool mVRImgAcquired[2] = { false, false };
 };

@@ -384,6 +384,13 @@ class Interpreter {
     void RunGuiOnly();
     void Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_replacements);
     void EndFrame();
+
+    // Read-only accessors used by Fast3dWindow during HUD-pass setup.
+    int     GetCurrentEye()       const { return mVRCurrentEye; }
+    void*   GetCurrentRtv()       const { return mVRRtv; }
+    void*   GetCurrentDsv()       const { return mVRDsv; }
+    int32_t GetCurrentRtvWidth()  const { return mVROverrideWidth; }
+    int32_t GetCurrentRtvHeight() const { return mVROverrideHeight; }
     void HandleWindowEvents();
     bool IsFrameReady();
     bool ViewportMatchesRendererResolution();
@@ -556,18 +563,15 @@ class Interpreter {
     void* mVRRtv = nullptr;
     void* mVRDsv = nullptr;
     int mVRCurrentEye = 0;
-    enum VRPassType {
-        VR_PASS_INITIAL,
-        VR_PASS_BACKGROUND,
-        VR_PASS_WORLD,
-        VR_PASS_HUD
-    };
-    VRPassType mVRPassState = VR_PASS_INITIAL;
-    bool mIsHudPass = false;
     void* mVRHudRtv = nullptr;
     void* mVRHudDsv = nullptr;
     int32_t mVRHudWidth = 0;
     int32_t mVRHudHeight = 0;
+
+    // Set by Window::BeginVRHudPass / EndVRHudPass via NOOP markers in the
+    // F3DEX display list. While true, draws go to mVRHudRtv (the HUD quad
+    // layer); while false, draws go to the eye RTV.
+    bool mInHudPass = false;
 
     void SetVRMatrices(bool enabled, const float* projection, const float* view, int32_t width = 0, int32_t height = 0, void* rtv = nullptr, void* dsv = nullptr, int eye = 0) {
         mVREnabled = enabled;
