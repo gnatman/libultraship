@@ -454,13 +454,13 @@ void VRRuntime::GetViewMatrix(int eye, float* m) const {
     float y = mBasePosition[1] + eyePosWorldOffset[1];
     float z = mBasePosition[2] + eyePosWorldOffset[2];
 
-    m[0] = rot[0]; m[1] = rot[4]; m[2] = rot[8];  m[3] = 0.0f;
-    m[4] = rot[1]; m[5] = rot[5]; m[6] = rot[9];  m[7] = 0.0f;
-    m[8] = rot[2]; m[9] = rot[6]; m[10] = rot[10]; m[11] = 0.0f;
+    m[0] = rot[0]; m[1] = rot[1]; m[2] = rot[2];  m[3] = 0.0f;
+    m[4] = rot[4]; m[5] = rot[5]; m[6] = rot[6];  m[7] = 0.0f;
+    m[8] = rot[8]; m[9] = rot[9]; m[10] = rot[10]; m[11] = 0.0f;
     
-    m[12] = -(m[0] * x + m[4] * y + m[8] * z);
-    m[13] = -(m[1] * x + m[5] * y + m[9] * z);
-    m[14] = -(m[2] * x + m[6] * y + m[10] * z);
+    m[12] = -(m[0] * x + m[1] * y + m[2] * z);
+    m[13] = -(m[4] * x + m[5] * y + m[6] * z);
+    m[14] = -(m[8] * x + m[9] * y + m[10] * z);
     m[15] = 1.0f;
 }
 
