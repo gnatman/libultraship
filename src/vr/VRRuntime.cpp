@@ -415,52 +415,52 @@ void VRRuntime::GetViewMatrix(int eye, float* m) const {
         spdlog::critical("VR Live Sync [{}]: World={}, IPD={}", mFrameCounter, worldScale, ipdScale);
     }
 
-    // 1. Calculate eye rotation in world space: Q_world = Q_base * Q_eye_local
-    float q_eye_world[4];
-    QuaternionMultiply(mBaseRotation, mCurrentPose.eyes[eye].orientation, q_eye_world);
+    // 1. Convert Base Rotation from View (World-to-Kart) to Pose (Kart-to-World)
+    // The game's LookAt-derived rotation is already inverted; we flip it back
+    // to build the correct world-space coordinate system.
+    float q_base_pose[4] = { -mBaseRotation[0], -mBaseRotation[1], -mBaseRotation[2], mBaseRotation[3] };
 
-    // 2. Convert to matrix (this handles the rotation part of the view matrix)
+    // 2. Calculate World Pose of Eye
+    float q_eye_world[4];
+    QuaternionMultiply(q_base_pose, mCurrentPose.eyes[eye].orientation, q_eye_world);
+
     float rot[16];
     QuaternionToMatrix(q_eye_world, rot);
 
-    // 3. Calculate eye position in world space
-    // Eye offset relative to head center in tracking space (scaled by IPD)
+    // 3. Calculate World Position of Eye
     float eyeOffsetLocal[3] = {
         (mCurrentPose.eyes[eye].position[0] - mCurrentPose.head.position[0]) * ipdScale * worldScale,
         (mCurrentPose.eyes[eye].position[1] - mCurrentPose.head.position[1]) * ipdScale * worldScale,
         (mCurrentPose.eyes[eye].position[2] - mCurrentPose.head.position[2]) * ipdScale * worldScale
     };
 
-    // Head position in tracking space scaled by world scale
     float headPosLocalScaled[3] = {
         mCurrentPose.head.position[0] * worldScale,
         mCurrentPose.head.position[1] * worldScale,
         mCurrentPose.head.position[2] * worldScale
     };
 
-    // Total local eye position relative to tracking origin
     float eyePosLocal[3] = {
         headPosLocalScaled[0] + eyeOffsetLocal[0],
         headPosLocalScaled[1] + eyeOffsetLocal[1],
         headPosLocalScaled[2] + eyeOffsetLocal[2]
     };
 
-    // Rotate local eye position by base rotation
     float eyePosWorldOffset[3];
-    QuaternionRotateVector(mBaseRotation, eyePosLocal, eyePosWorldOffset);
+    QuaternionRotateVector(q_base_pose, eyePosLocal, eyePosWorldOffset);
 
-    // Add base position to get final world position
     float x = mBasePosition[0] + eyePosWorldOffset[0];
     float y = mBasePosition[1] + eyePosWorldOffset[1];
     float z = mBasePosition[2] + eyePosWorldOffset[2];
 
+    // 4. Construct View Matrix
     m[0] = rot[0]; m[1] = rot[1]; m[2] = rot[2];  m[3] = 0.0f;
     m[4] = rot[4]; m[5] = rot[5]; m[6] = rot[6];  m[7] = 0.0f;
     m[8] = rot[8]; m[9] = rot[9]; m[10] = rot[10]; m[11] = 0.0f;
     
-    m[12] = -(m[0] * x + m[1] * y + m[2] * z);
-    m[13] = -(m[4] * x + m[5] * y + m[6] * z);
-    m[14] = -(m[8] * x + m[9] * y + m[10] * z);
+    m[12] = -(m[0] * x + m[4] * y + m[8] * z);
+    m[13] = -(m[1] * x + m[5] * y + m[9] * z);
+    m[14] = -(m[2] * x + m[6] * y + m[10] * z);
     m[15] = 1.0f;
 }
 
