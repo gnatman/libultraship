@@ -959,7 +959,7 @@ void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
 void GfxRenderingAPIDX11::ClearFramebuffer(bool color, bool depth) {
     if (mOverrideRTV != nullptr) {
         if (color) {
-            const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f }; // Solid Black
             mContext->ClearRenderTargetView(mOverrideRTV, clearColor);
         }
         if (depth && mOverrideDSV != nullptr) {

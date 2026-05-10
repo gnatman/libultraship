@@ -564,7 +564,9 @@ class Interpreter {
     };
     VRPassType mVRPassState = VR_PASS_INITIAL;
     bool mIsHudPass = false;
+    bool mVRIsTargetingHud = false;
     void* mVRHudRtv = nullptr;
+    XYWidthHeight mVRSavedDimensions;
     void* mVRHudDsv = nullptr;
     int32_t mVRHudWidth = 0;
     int32_t mVRHudHeight = 0;

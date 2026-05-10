@@ -247,16 +247,17 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 auto originalDimensions = mInterpreter->mCurDimensions;
 
                 if (mVRHudLayerIndex != -1 && runtime->GetQuadCount() == 0) {
-                    mVRHudLayerIndex = -1;
-                    SPDLOG_INFO("Resetting VR HUD Layer index due to empty runtime layers");
+                    // Safety check: if the runtime lost its layers but we still have an index,
+                    // we should just let the creation logic below handle it if needed.
+                    // Do not reset to -1 immediately as it causes a "flash and vanish" cycle.
                 }
 
                 if (mVRHudLayerIndex == -1) {
-                    mVRHudLayerIndex = runtime->CreateQuadLayer(1280, 720);
+                    mVRHudLayerIndex = runtime->CreateQuadLayer(640, 480);
                     SPDLOG_INFO("Created VR HUD Quad Layer at index: {}", mVRHudLayerIndex);
                     
                     mVRHudFbId = rapi->CreateFramebuffer();
-                    rapi->UpdateFramebufferParameters(mVRHudFbId, 1280, 720, 1, false, true, true, false);
+                    rapi->UpdateFramebufferParameters(mVRHudFbId, 640, 480, 1, false, true, true, false);
                     SPDLOG_INFO("Created Native HUD Framebuffer with ID: {}", mVRHudFbId);
                 }
 
@@ -267,9 +268,10 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 
                 float hudWidth = cvars->GetFloat("gVRHUDWidth", 1.0f);
                 if (hudWidth == 1.0f) hudWidth = cvars->GetFloat("gVR.HUDWidth", 1.0f);
-                float hudHeight = hudWidth * (720.0f / 1280.0f); // Match 16:9 aspect ratio
+                float hudHeight = hudWidth * (480.0f / 640.0f); // Match 4:3 aspect ratio
+                
 
-                XrPosef pose = { {0, 1, 0, 0}, {0, 0, -hudDist} };
+                XrPosef pose = { {0, 0, 0, 1}, {0, 0, -hudDist} }; 
                 runtime->SetQuadPose(mVRHudLayerIndex, pose);
                 XrExtent2Df size = { hudWidth, hudHeight };
                 runtime->SetQuadSize(mVRHudLayerIndex, size);
@@ -281,7 +283,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
                 runtime->GetQuadDimensions(mVRHudLayerIndex, &hudW, &hudH);
 
                 if (hudRtv) {
-                    mInterpreter->SetVRHudTarget(hudRtv, hudDsv, hudW, hudH);
+                    mInterpreter->SetVRHudTarget(hudRtv, hudDsv, 640, 480);
                     mVRMirrorSRV = (uintptr_t)runtime->GetQuadSRV(mVRHudLayerIndex, hudImgIdx);
                 }
 

@@ -133,8 +133,9 @@ static constexpr float N64_PRIM_DEPTH_MAX = 32767.0f;
 
 void Interpreter::Flush() {
     if (mBufVboLen > 0) {
-        if (mVREnabled && mIsHudPass && mVRCurrentEye == 1) {
-            // Skip rendering HUD on the second eye pass to avoid redundant overdraw
+        if (mVREnabled && mIsHudPass && !mVRIsTargetingHud) {
+            // GHOST ERASURE: If we are not explicitly targeting the HUD Quad layer,
+            // block HUD commands from drawing to prevent them from sticking to the eyeballs.
             mBufVboLen = 0;
             mBufVboNumTris = 0;
             return;
@@ -1428,37 +1429,50 @@ void Interpreter::GfxSpMatrix(uint8_t parameters, const int32_t* addr) {
             memcpy(mRsp->P_matrix, matrix, sizeof(matrix));
 
             if (mVREnabled) {
-                // Ortho detection heuristic: P_matrix has zero perspective term.
-                // Perspective matrices typically have m[2][3] == -1 and m[3][3] == 0.
-                // Ortho matrices have m[2][3] == 0 and m[3][3] == 1.
-                // Use a small epsilon for floating point robustness across eyes.
                 bool isOrtho = (fabsf(matrix[2][3]) < 0.001f && fabsf(matrix[3][3] - 1.0f) < 0.001f);
                 
                 bool isHud = false;
                 if (isOrtho) {
-                    // Distinguish HUD from Skybox/Background:
-                    // HUD uses centered ortho (near=-1, far=1) -> m[3][2] == 0.0
-                    // We allow a small epsilon here to capture elements that might be slightly offset 
-                    // or use different near/far planes that still result in a 2D look.
-                    bool centered = (fabsf(matrix[3][2]) < 1.0f);
-                    if (centered && (mVRPassState == VR_PASS_WORLD || mVRPassState == VR_PASS_HUD)) {
-                        // Safety: Only treat as HUD pass if we have a valid target RTV.
-                        // If not, fall back to rendering into the 3D world buffer (ensures stereo visibility).
-                        if (mVRHudRtv != nullptr) {
-                            mVRPassState = VR_PASS_HUD;
-                            isHud = true;
-                        } else {
-                            mVRPassState = VR_PASS_WORLD;
-                            isHud = false;
-                        }
-                    } else {
-                        mVRPassState = VR_PASS_BACKGROUND;
-                        isHud = false;
+                    // HUD detection: orthographic matrices with depth within the 2D overlay range.
+                    isHud = (fabsf(matrix[3][2]) < 1.1f);
+                }
+
+                if (isHud) {
+                    // STICKY SCALING: Every time a HUD matrix is active, we MUST ensure 
+                    // the engine is using the HUD's native resolution (640x480).
+                    if (!mVRIsTargetingHud) {
+                        Flush();
+                        mVRSavedDimensions.width = mCurDimensions.width;
+                        mVRSavedDimensions.height = mCurDimensions.height;
+                        mVRIsTargetingHud = true;
                     }
-                } else {
-                    // Perspective matrix -> we have entered the 3D world pass.
-                    mVRPassState = VR_PASS_WORLD;
-                    isHud = false;
+                    
+                    mCurDimensions.width = mVRHudWidth;
+                    mCurDimensions.height = mVRHudHeight;
+                    mIsHudPass = true;
+
+                    // Switch target and force viewport reset
+                    mRapi->SetOverrideRenderTarget(mVRHudRtv, mVRHudDsv, mVRHudWidth, mVRHudHeight);
+                    mRapi->StartDrawToFramebuffer(0, 0.0f); 
+                    mRdp->viewport = { 0, (int16_t)mVRHudHeight, (uint32_t)mVRHudWidth, (uint32_t)mVRHudHeight };
+                    mRdp->viewport_or_scissor_changed = true;
+                    
+                    static int hudSwitchLog = 0;
+                    if (hudSwitchLog++ % 500 == 0) {
+                        SPDLOG_INFO("VR SWITCH: Syncing HUD Sticker ({}x{})", mVRHudWidth, mVRHudHeight);
+                    }
+                } else if (mVRIsTargetingHud) {
+                    // Switch back to the Eyeballs (restoring scaling and target)
+                    Flush();
+                    mCurDimensions.width = mVRSavedDimensions.width;
+                    mCurDimensions.height = mVRSavedDimensions.height;
+                    mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+                    mVRIsTargetingHud = false;
+                    mIsHudPass = false;
+                    
+                    // Restore Eyeball Viewport state
+                    mRapi->StartDrawToFramebuffer(mRendersToFb ? mGameFb : 0, (float)mCurDimensions.height / mNativeDimensions.height);
+                    mRdp->viewport_or_scissor_changed = true;
                 }
 
                 static int lastEye = -1;
@@ -2894,6 +2908,9 @@ void Interpreter::GfxDrawRectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_
 
 void Interpreter::GfxDpTextureRectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry, uint8_t tile, int16_t uls,
                                         int16_t ult, int16_t dsdx, int16_t dtdy, bool flip) {
+    if (mVREnabled && mIsHudPass && !mVRIsTargetingHud) {
+        return;
+    }
     // printf("render %d at %d\n", tile, lrx);
     uint64_t saved_combine_mode = mRdp->combine_mode;
     if ((mRdp->other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_COPY) {
@@ -2960,6 +2977,9 @@ void Interpreter::GfxDpTextureRectangle(int32_t ulx, int32_t uly, int32_t lrx, i
 
 void Interpreter::GfxDpImageRectangle(int32_t tile, int32_t w, int32_t h, int32_t ulx, int32_t uly, int16_t uls,
                                       int16_t ult, int32_t lrx, int32_t lry, int16_t lrs, int16_t lrt) {
+    if (mVREnabled && mIsHudPass && !mVRIsTargetingHud) {
+        return;
+    }
 
     LoadedVertex* ul = &mRsp->loaded_vertices[MAX_VERTICES + 0];
     LoadedVertex* ll = &mRsp->loaded_vertices[MAX_VERTICES + 1];
@@ -3007,6 +3027,9 @@ void Interpreter::GfxDpImageRectangle(int32_t tile, int32_t w, int32_t h, int32_
 }
 
 void Interpreter::GfxDpFillRectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry) {
+    if (mVREnabled && mIsHudPass && mVRHudRtv == nullptr) {
+        return;
+    }
     if (mRdp->color_image_address == mRdp->z_buf_address) {
         // Fullscreen Z clears are redundant — already done by glClear at frame start.
         bool isFullScreen = (ulx <= 0 && uly <= 0 && lrx >= (int32_t)(mNativeDimensions.width - 1) * 4 &&
@@ -5108,7 +5131,9 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     mVRPassState = VR_PASS_INITIAL;
 
     if (mVREnabled) {
+        // Always start by targeting the primary eye buffers.
         mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+        mVRIsTargetingHud = false;
     }
 
     uint32_t width = mVREnabled ? (uint32_t)mVROverrideWidth : mGfxCurrentWindowDimensions.width;

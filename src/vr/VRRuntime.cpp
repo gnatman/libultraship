@@ -247,16 +247,15 @@ bool VRRuntime::BeginFrame() {
 void VRRuntime::EndFrame() {
     if (!mInitialized) return;
 
-    std::vector<XrCompositionLayerBaseHeader*> layers;
+    // Use a fixed-size array for layer headers to ensure pointers stay valid for xrEndFrame
+    XrCompositionLayerBaseHeader* layerPtrs[16]; // Maximum 16 layers
+    uint32_t layerCount = 0;
+
     XrCompositionLayerProjection projectionLayer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
     projectionLayer.layerFlags = 0;
     projectionLayer.space = mStageSpace;
-    
+
     std::vector<XrCompositionLayerProjectionView> projectionViews(2, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW });
-    
-    // We use a static vector to ensure the quad layer structs stay valid until xrEndFrame returns
-    static std::vector<XrCompositionLayerQuad> quadLayerStructs;
-    quadLayerStructs.clear();
 
     if (mFrameState.shouldRender && mStageSpace != XR_NULL_HANDLE) {
         for (int i = 0; i < 2; i++) {
@@ -269,37 +268,39 @@ void VRRuntime::EndFrame() {
             projectionViews[i].subImage.imageRect.offset = { 0, 0 };
             projectionViews[i].subImage.imageRect.extent = { mSwapchains[i].width, mSwapchains[i].height };
             projectionViews[i].subImage.imageArrayIndex = 0;
-
-            spdlog::critical("Eye {} - FOV: [{}, {}, {}, {}], Dim: {}x{}, Swapchain: 0x{:X}", 
-                i, projectionViews[i].fov.angleLeft, projectionViews[i].fov.angleRight, 
-                projectionViews[i].fov.angleUp, projectionViews[i].fov.angleDown,
-                mSwapchains[i].width, mSwapchains[i].height, (uintptr_t)mSwapchains[i].handle);
         }
 
         projectionLayer.viewCount = 2;
         projectionLayer.views = projectionViews.data();
-        layers.push_back((XrCompositionLayerBaseHeader*)&projectionLayer);
+        layerPtrs[layerCount++] = (XrCompositionLayerBaseHeader*)&projectionLayer;
 
+        // Submit up to 14 quad layers (reserved 2 slots for projection and extra)
         for (const auto& quad : mQuadLayers) {
-            if (quad && quad->IsValid()) {
-                auto layerStruct = quad->GetCompositionLayer(mViewSpace);
-                quadLayerStructs.push_back(layerStruct);
+            if (quad && quad->IsValid() && layerCount < 16) {
+                // Copy the struct locally to the frame stack to ensure persistence during the call
+                static XrCompositionLayerQuad quadStructs[14]; 
+                int idx = layerCount - 1;
+                quadStructs[idx] = quad->GetCompositionLayer(mViewSpace);
+                layerPtrs[layerCount++] = (XrCompositionLayerBaseHeader*)&quadStructs[idx];
             }
-        }
-        for (size_t i = 0; i < quadLayerStructs.size(); i++) {
-            layers.push_back((XrCompositionLayerBaseHeader*)&quadLayerStructs[i]);
         }
     }
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = mFrameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    endInfo.layerCount = (uint32_t)layers.size();
-    endInfo.layers = (layers.size() > 0) ? layers.data() : nullptr;
+    endInfo.layerCount = layerCount;
+    endInfo.layers = (layerCount > 0) ? layerPtrs : nullptr;
     
+    static int frameCheck = 0;
+    if (frameCheck++ % 100 == 0) {
+        SPDLOG_INFO("VR Submission Heartbeat - Layers: {}, ShouldRender: {}, StageSpace: {}", 
+            layerCount, (int)mFrameState.shouldRender, (void*)mStageSpace);
+    }
+
     XrResult res = xrEndFrame(mSession, &endInfo);
     if (XR_FAILED(res)) {
-        SPDLOG_ERROR("xrEndFrame failed: {} (Tracked: {})", (int)res, (mViewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0);
+        SPDLOG_ERROR("xrEndFrame failed with error: {}", (int)res);
     }
 }
 

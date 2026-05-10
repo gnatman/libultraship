@@ -155,7 +155,7 @@ void VRQuadLayer::ReleaseImage() {
 
 XrCompositionLayerQuad VRQuadLayer::GetCompositionLayer(XrSpace space) const {
     XrCompositionLayerQuad layer = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-    layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    layer.layerFlags = 0; // Disable alpha for persistence test
     layer.space = space;
     layer.eyeVisibility = mVisibility;
     layer.pose = mPose;

@@ -1,0 +1,50 @@
+    mGetPixelDepthPending.clear();
+    mGetPixelDepthCached.clear();
+
+    mCurMtxReplacements = &mtx_replacements;
+    mIsHudPass = false;
+    mVRPassState = VR_PASS_INITIAL;
+
+    if (mVREnabled) {
+        if (mVRHudRtv != nullptr) {
+            mRapi->SetOverrideRenderTarget(mVRHudRtv, mVRHudDsv, mVRHudWidth, mVRHudHeight);
+        } else {
+            mRapi->SetOverrideRenderTarget(mVRRtv, mVRDsv, mVROverrideWidth, mVROverrideHeight);
+        }
+    }
+
+    uint32_t width = mVREnabled ? (uint32_t)mVROverrideWidth : mGfxCurrentWindowDimensions.width;
+    uint32_t height = mVREnabled ? (uint32_t)mVROverrideHeight : mGfxCurrentWindowDimensions.height;
+
+    mRapi->UpdateFramebufferParameters(0, width, height, 1,
+                                       false, true, true, !mRendersToFb);
+    mRapi->StartFrame();
+    mRapi->StartDrawToFramebuffer(mRendersToFb ? mGameFb : 0, (float)mCurDimensions.height / mNativeDimensions.height);
+    mRapi->ClearFramebuffer(true, true);
+
+    // Reset RDP Viewport and Scissor to Native Full Screen
+    // These will be scaled by the next Flush() using mCurDimensions (which is VR resolution)
+    mRdp->viewport.x = 0;
+    mRdp->viewport.y = 0;
+    mRdp->viewport.width = mNativeDimensions.width;
+    mRdp->viewport.height = mNativeDimensions.height;
+    mRdp->scissor.x = 0;
+    mRdp->scissor.y = 0;
+    mRdp->scissor.width = mNativeDimensions.width;
+    mRdp->scissor.height = mNativeDimensions.height;
+
+    mRdp->viewport_or_scissor_changed = true;
+    mRenderingState.viewport = {};
+    mRenderingState.scissor = {};
+
+    auto dbg = mGfxDebugger;
+    g_exec_stack.start((F3DGfx*)commands);
+    while (!g_exec_stack.cmd_stack.empty()) {
+        auto cmd = g_exec_stack.cmd_stack.top();
+
+        if (dbg->IsDebugging()) {
+            g_exec_stack.gfx_path.push_back(cmd);
+            if (dbg->HasBreakPoint(g_exec_stack.gfx_path)) {
+                // On a breakpoint with the active framebuffer still set, we need to reset back to prevent
+                // soft locking the renderer
+                if (mFbActive) {
