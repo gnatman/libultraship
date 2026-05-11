@@ -1511,7 +1511,17 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
 
         float x, y, z, w;
 
-        if (mVREnabled && !mInHudPass) {
+        bool isOrtho = fabsf(mRsp->P_matrix[3][3] - 1.0f) < 0.01f;
+        bool applyVR = mVREnabled && !mInHudPass && !isOrtho;
+
+        if (mVREnabled && !mInHudPass && isOrtho) {
+            static int orthoLogCount = 0;
+            if (orthoLogCount++ % 2000 == 0) {
+                SPDLOG_INFO("VR Ortho Protection: Skipped VR perspective for ortho matrix. P_matrix[3][3]={}", mRsp->P_matrix[3][3]);
+            }
+        }
+
+        if (applyVR) {
             // 1. Transform vertex to Game Camera Space using game's current ModelView
             float* m = (float*)&mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1];
             
@@ -1556,7 +1566,7 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             world_pos[2] = v->ob[0] * mtx[0][2] + v->ob[1] * mtx[1][2] + v->ob[2] * mtx[2][2] + mtx[3][2];
         }
 
-        if (!(mVREnabled && !mInHudPass)) {
+        if (!applyVR) {
             x = AdjXForAspectRatio(x);
         }
 
