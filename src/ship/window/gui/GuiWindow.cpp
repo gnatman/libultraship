@@ -58,7 +58,10 @@ void GuiWindow::SyncVisibilityConsoleVariable() {
     }
 
     if (shouldSave) {
-        Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        auto window = Context::GetInstance()->GetWindow();
+        if (window != nullptr && window->GetGui() != nullptr) {
+            window->GetGui()->SaveConsoleVariablesNextFrame();
+        }
     }
 }
 

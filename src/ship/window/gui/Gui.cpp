@@ -20,6 +20,9 @@
 #include "vr/VRRuntime.h"
 #endif
 
+#include "libultraship/window/gui/InputEditorWindow.h"
+#include "libultraship/window/gui/GfxDebuggerWindow.h"
+
 namespace Ship {
 #define TOGGLE_BTN ImGuiKey_F1
 #define TOGGLE_PAD_BTN ImGuiKey_GamepadBack
@@ -57,6 +60,15 @@ Gui::~Gui() {
 void Gui::Init() {
     ImGuiContext* ctx = ImGui::CreateContext();
     ImGui::SetCurrentContext(ctx);
+
+    if (GetGuiWindow("Input Editor") == nullptr) {
+        AddGuiWindow(std::make_shared<LUS::InputEditorWindow>(CVAR_CONTROLLER_CONFIGURATION_WINDOW_OPEN, "Input Editor"));
+    }
+
+    if (GetGuiWindow("GfxDebuggerWindow") == nullptr) {
+        AddGuiWindow(std::make_shared<LUS::GfxDebuggerWindow>(CVAR_GFX_DEBUGGER_WINDOW_OPEN, "GfxDebuggerWindow"));
+    }
+
     mImGuiIo = &ImGui::GetIO();
     mImGuiIo->ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NoMouseCursorChange;
 
@@ -283,9 +295,6 @@ void Gui::DrawGame() {
 }
 
 void Gui::DrawFloatingWindows() {
-#ifdef ENABLE_VR
-    VRRuntime::GetInstance()->DrawPerformanceOverlay();
-#endif
 }
 
 void Gui::CheckSaveCvars() {
@@ -307,6 +316,11 @@ void Gui::StartDraw() {
 void Gui::EndDraw() {
     // Draw the game framebuffer into ImGui
     DrawGame();
+
+#ifdef ENABLE_VR
+    VRRuntime::GetInstance()->DrawPerformanceOverlay();
+#endif
+
     // End the frame
     EndFrame();
     // Draw the ImGui floating windows.
