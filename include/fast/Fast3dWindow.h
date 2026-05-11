@@ -66,6 +66,7 @@ class Fast3dWindow : public Ship::Window {
     bool IsFullscreen() override;
     bool IsRunning() override;
     uintptr_t GetGfxFrameBuffer() override;
+    uintptr_t GetGfxHudFrameBuffer() override;
     const char* GetKeyName(int32_t scancode) override;
 
     void SetVRBaseTrackingSpace(const float* pos, const float* rotQuat) override;

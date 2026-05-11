@@ -414,6 +414,12 @@ void Fast3dGui::DrawGame() {
         ImGui::Image(reinterpret_cast<ImTextureID>(fb), size);
     }
 
+    uintptr_t hudFb = Ship::Context::GetInstance()->GetWindow()->GetGfxHudFrameBuffer();
+    if (hudFb) {
+        ImGui::SetCursorPos(pos);
+        ImGui::Image(reinterpret_cast<ImTextureID>(hudFb), size);
+    }
+
     ImGui::End();
 }
 

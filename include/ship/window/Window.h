@@ -164,6 +164,8 @@ class Window {
     virtual const char* GetKeyName(int32_t scancode) = 0;
     /** @brief Returns a handle to the graphics API framebuffer object. */
     virtual uintptr_t GetGfxFrameBuffer() = 0;
+    /** @brief Returns a handle to the graphics API VR HUD framebuffer object, if available. */
+    virtual uintptr_t GetGfxHudFrameBuffer() { return 0; }
 
     /**
      * @brief Sets the base world-space origin and orientation for the VR tracking volume.

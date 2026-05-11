@@ -483,6 +483,18 @@ uintptr_t Fast3dWindow::GetGfxFrameBuffer() {
     return mInterpreter->mGfxFrameBuffer;
 }
 
+uintptr_t Fast3dWindow::GetGfxHudFrameBuffer() {
+#ifdef ENABLE_VR
+    if (Ship::VRToggle::IsVREnabled() && mVRHudLayerIndex != -1 && mHudImageAcquiredThisFrame) {
+        auto runtime = Ship::VRRuntime::GetInstance();
+        if (runtime && runtime->IsInitialized()) {
+            return (uintptr_t)runtime->GetQuadSRV(mVRHudLayerIndex, mVRHudImgIdx);
+        }
+    }
+#endif
+    return 0;
+}
+
 const char* Fast3dWindow::GetKeyName(int32_t scancode) {
     return mWindowManagerApi->GetKeyName(scancode);
 }
