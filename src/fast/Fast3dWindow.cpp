@@ -213,20 +213,6 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
     mInterpreter->StartFrame();
 
 #ifdef ENABLE_VR
-    static bool firstVRCheck = true;
-    if (firstVRCheck) {
-        SPDLOG_INFO("ENABLE_VR macro is DEFINED in Fast3dWindow.cpp");
-        firstVRCheck = false;
-    }
-#else
-    static bool firstVRCheck = true;
-    if (firstVRCheck) {
-        SPDLOG_INFO("ENABLE_VR macro is NOT DEFINED in Fast3dWindow.cpp");
-        firstVRCheck = false;
-    }
-#endif
-
-#ifdef ENABLE_VR
     if (Ship::VRToggle::IsVREnabled()) {
         auto runtime = Ship::VRRuntime::GetInstance();
         bool initialized = runtime->IsInitialized();
@@ -235,10 +221,6 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
         mVRMirrorSRV = 0;
         if (initialized && (beginFrameSuccess = runtime->BeginFrame())) {
             bool shouldRender = runtime->ShouldRender();
-            static int frameTrack = 0;
-            if (frameTrack++ % 1000 == 0) {
-                SPDLOG_INFO("VR Path - Init: {}, State: {}, Render: {}", (int)initialized, (int)runtime->GetSessionState(), (int)shouldRender);
-            }
 
             if (shouldRender) {
                 auto rapi = GetRenderingApi();
@@ -248,7 +230,6 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
                 if (mVRHudLayerIndex != -1 && runtime->GetQuadCount() == 0) {
                     mVRHudLayerIndex = -1;
-                    SPDLOG_INFO("Resetting VR HUD Layer index due to empty runtime layers");
                 }
 
                 // Reset HUD pass state for the new frame.

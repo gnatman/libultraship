@@ -14,7 +14,6 @@ void VRToggle::Update() {
     
     if (enabled != mEnabled) {
         mEnabled = enabled;
-        SPDLOG_INFO("VR Toggle: {}", mEnabled);
 
         auto runtime = VRRuntime::GetInstance();
         if (mEnabled == 1) {

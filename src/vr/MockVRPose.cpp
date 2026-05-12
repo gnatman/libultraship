@@ -50,7 +50,6 @@ void MockVRPose::ProcessKeyboardEvent(KbEventType eventType, KbScancode scancode
     switch (scancode) {
         case LUS_KB_ALT: 
             mAltPressed = isDown; 
-            SPDLOG_INFO("MockVR Alt State: {}", mAltPressed);
             break;
         case LUS_KB_ARROWKEY_UP: mUpPressed = isDown; break;
         case LUS_KB_ARROWKEY_DOWN: mDownPressed = isDown; break;
@@ -72,7 +71,6 @@ void MockVRPose::Update() {
     
     static int32_t lastEnabled = -1;
     if (enabled != lastEnabled) {
-        SPDLOG_INFO("MockVR Enabled CVar: {}", enabled);
         lastEnabled = enabled;
     }
 
@@ -90,7 +88,6 @@ void MockVRPose::Update() {
             mYaw -= delta.x * 0.005f;
             mPitch -= delta.y * 0.005f;
             mPitch = std::max(-1.5f, std::min(1.5f, mPitch));
-            SPDLOG_INFO("MockVR Pose Update - Yaw: {:.3f}, Pitch: {:.3f} (Delta: {}, {})", mYaw, mPitch, delta.x, delta.y);
         }
     }
 

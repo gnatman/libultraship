@@ -1,4 +1,5 @@
 #include "ship/config/ConsoleVariable.h"
+#include <spdlog/spdlog.h>
 
 #include <functional>
 #include "ship/utils/filesystemtools/DiskFile.h"
@@ -295,20 +296,21 @@ void ConsoleVariable::LoadFromPath(
     }
 
     for (const auto& item : items) {
-        std::string itemPath = path + item.key();
+        try {
+            std::string itemPath = path + item.key();
         auto value = item.value();
         switch (value.type()) {
             case nlohmann::detail::value_t::array:
                 break;
             case nlohmann::detail::value_t::object:
-                if (value.contains("Type") && value["Type"].get<std::string>() == "RGBA") {
+                if (value.contains("Type") && value["Type"].is_string() && value["Type"].get<std::string>() == "RGBA") {
                     Color_RGBA8 clr;
                     clr.r = value["R"].get<uint8_t>();
                     clr.g = value["G"].get<uint8_t>();
                     clr.b = value["B"].get<uint8_t>();
                     clr.a = value["A"].get<uint8_t>();
                     SetColor(itemPath.c_str(), clr);
-                } else if (value.contains("Type") && value["Type"].get<std::string>() == "RGB") {
+                } else if (value.contains("Type") && value["Type"].is_string() && value["Type"].get<std::string>() == "RGB") {
                     Color_RGB8 clr;
                     clr.r = value["R"].get<uint8_t>();
                     clr.g = value["G"].get<uint8_t>();
@@ -333,6 +335,9 @@ void ConsoleVariable::LoadFromPath(
                 SetFloat(itemPath.c_str(), value.get<float>());
                 break;
             default:;
+        }
+        } catch (const nlohmann::json::exception& e) {
+            SPDLOG_ERROR("Failed to load CVar {}: {}", (path + item.key()), e.what());
         }
     }
 }

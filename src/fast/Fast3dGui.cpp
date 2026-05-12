@@ -269,6 +269,8 @@ void Fast3dGui::ImGuiRenderDrawData(ImDrawData* data) {
 }
 
 void Fast3dGui::DrawFloatingWindows() {
+    Ship::Gui::DrawFloatingWindows();
+
     if (!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)) {
         return;
     }

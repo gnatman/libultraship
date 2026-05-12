@@ -41,7 +41,7 @@ nlohmann::json Config::Nested(const std::string& key) {
         return mFlattenedJson;
     }
 
-    nlohmann::json gjson = mFlattenedJson.unflatten();
+    nlohmann::json gjson = SafeUnflatten("Nested(" + key + ")");
 
     if (dots.size() > 1) {
         for (auto& dot : dots) {
@@ -129,7 +129,7 @@ void Config::Erase(const std::string& key) {
 }
 
 void Config::SetBlock(const std::string& key, nlohmann::json block) {
-    nlohmann::json gjson = mFlattenedJson.unflatten();
+    nlohmann::json gjson = SafeUnflatten("SetBlock(" + key + ")");
     if (key.find(".") != std::string::npos) {
         nlohmann::json* gjson2 = &gjson;
         std::vector<std::string> dots = StringHelper::Split(key, ".");
@@ -158,7 +158,7 @@ void Config::SetBlock(const std::string& key, nlohmann::json block) {
 }
 
 void Config::EraseBlock(const std::string& key) {
-    nlohmann::json gjson = mFlattenedJson.unflatten();
+    nlohmann::json gjson = SafeUnflatten("EraseBlock(" + key + ")");
     if (key.find(".") != std::string::npos) {
         nlohmann::json* gjson2 = &gjson;
         std::vector<std::string> dots = StringHelper::Split(key, ".");
@@ -213,8 +213,21 @@ void Config::Reload() {
 
 void Config::Save() {
     std::ofstream file(mPath);
-    mNestedJson = mFlattenedJson.unflatten();
+    mNestedJson = SafeUnflatten("Save");
     file << mNestedJson.dump(4);
+}
+
+nlohmann::json Config::SafeUnflatten(const std::string& context) {
+    if (!mFlattenedJson.is_object()) {
+        return mFlattenedJson;
+    }
+
+    try {
+        return mFlattenedJson.unflatten();
+    } catch (const nlohmann::json::exception& e) {
+        SPDLOG_ERROR("Config::{} - Failed to unflatten JSON: {}. This usually happens when a key path is used as both an object and an array (e.g., gWheel.Button.0020 vs gWheel.Button.Btn0020).", context, e.what());
+        return nlohmann::json::object();
+    }
 }
 
 template <typename T> std::vector<T> Config::GetArray(const std::string& key) {

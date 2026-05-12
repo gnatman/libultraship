@@ -55,8 +55,6 @@ VRQuadLayer::VRQuadLayer(XrSession session, int32_t width, int32_t height, XrEye
         return;
     }
     
-    spdlog::critical("Quad Layer Created - Visibility: {}, Handle: 0x{:X}", (int)mVisibility, (uintptr_t)mSwapchain);
-
     uint32_t imageCount = 0;
     xrEnumerateSwapchainImages(mSwapchain, 0, &imageCount, nullptr);
     std::vector<XrSwapchainImageD3D11KHR> images(imageCount, { XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR });

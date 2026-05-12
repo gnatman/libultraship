@@ -226,6 +226,8 @@ class Config {
     template <typename T> std::vector<T> GetArray(const std::string& key);
 
   private:
+    nlohmann::json SafeUnflatten(const std::string& context = "");
+
     nlohmann::json mFlattenedJson;
     nlohmann::json mNestedJson;
     std::string mPath;

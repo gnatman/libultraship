@@ -62,8 +62,6 @@ VRRuntime::~VRRuntime() {
 bool VRRuntime::Init() {
     if (mInitialized) return true;
 
-    SPDLOG_INFO("Initializing OpenXR...");
-
     // Enumerate Extensions
     uint32_t extCount = 0;
     XrResult res = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
@@ -75,10 +73,8 @@ bool VRRuntime::Init() {
     std::vector<XrExtensionProperties> props(extCount, { XR_TYPE_EXTENSION_PROPERTIES });
     xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, props.data());
     
-    SPDLOG_INFO("Available OpenXR Extensions:");
     bool hasD3D11 = false;
     for (const auto& p : props) {
-        SPDLOG_INFO("  - {}", p.extensionName);
         if (strcmp(p.extensionName, XR_KHR_D3D11_ENABLE_EXTENSION_NAME) == 0) {
             hasD3D11 = true;
         }
@@ -104,7 +100,6 @@ bool VRRuntime::Init() {
             float val = cvars_ptr->GetFloat(oldName, def);
             cvars_ptr->SetFloat(newName, val);
             cvars_ptr->ClearVariable(oldName);
-            SPDLOG_INFO("Migrated CVar {} -> {} (value: {})", oldName, newName, val);
             migrated = true;
         }
     };
@@ -125,9 +120,6 @@ bool VRRuntime::Init() {
     CVarRegisterFloat("gVRHUDWidth", 1.0f);
     CVarRegisterFloat("gVRHUDScale", 1.0f);
     
-    spdlog::critical("VRRuntime Init Complete. Live Values - World: {}, IPD: {}", 
-        CVarGetFloat("gVRWorldScale", 1.0f), 
-        CVarGetFloat("gVRIPDScale", 1.0f));
     cvars->RegisterInteger("gVRPerformanceOverlay", 0);
 
     // Get System
@@ -138,8 +130,6 @@ bool VRRuntime::Init() {
         SPDLOG_ERROR("Failed to get OpenXR system");
         return false;
     }
-
-    SPDLOG_INFO("OpenXR System found!");
 
     if (!CreateSession()) {
         SPDLOG_ERROR("Failed to create OpenXR session");
@@ -158,8 +148,6 @@ bool VRRuntime::Init() {
 }
 
 void VRRuntime::Shutdown() {
-    SPDLOG_INFO("OpenXR Shutdown starting...");
-
     auto window = Context::GetInstance()->GetWindow();
     if (window) {
         auto fastWindow = std::dynamic_pointer_cast<Fast::Fast3dWindow>(window);
@@ -195,7 +183,6 @@ void VRRuntime::Shutdown() {
     }
 
     mInitialized = false;
-    SPDLOG_INFO("OpenXR Shutdown complete");
 }
 
 void VRRuntime::Update() {
@@ -269,11 +256,6 @@ void VRRuntime::EndFrame() {
             projectionViews[i].subImage.imageRect.offset = { 0, 0 };
             projectionViews[i].subImage.imageRect.extent = { mSwapchains[i].width, mSwapchains[i].height };
             projectionViews[i].subImage.imageArrayIndex = 0;
-
-            spdlog::critical("Eye {} - FOV: [{}, {}, {}, {}], Dim: {}x{}, Swapchain: 0x{:X}", 
-                i, projectionViews[i].fov.angleLeft, projectionViews[i].fov.angleRight, 
-                projectionViews[i].fov.angleUp, projectionViews[i].fov.angleDown,
-                mSwapchains[i].width, mSwapchains[i].height, (uintptr_t)mSwapchains[i].handle);
         }
 
         projectionLayer.viewCount = 2;
@@ -410,10 +392,6 @@ void VRRuntime::GetViewMatrix(int eye, float* m) const {
 
     float ipdScale = CVarGetFloat("gVRIPDScale", 1.0f);
     if (ipdScale == 1.0f) ipdScale = CVarGetFloat("gVR.IPDScale", 1.0f);
-
-    if (mFrameCounter % 500 == 0) {
-        spdlog::critical("VR Live Sync [{}]: World={}, IPD={}", mFrameCounter, worldScale, ipdScale);
-    }
 
     // 1. Convert Base Rotation from View (World-to-Kart) to Pose (Kart-to-World)
     // The game's LookAt-derived rotation is already inverted; we flip it back
@@ -575,8 +553,6 @@ bool VRRuntime::CreateSession() {
         return false;
     }
 
-    SPDLOG_INFO("OpenXR Session created!");
-
     XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
     spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL; 
     spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
@@ -628,7 +604,9 @@ bool VRRuntime::CreateSwapchains() {
 
     auto cvars = Context::GetInstance()->GetConsoleVariables();
     float supersampling = cvars->GetFloat("gVRSupersampling", 1.0f);
-    int msaa = cvars->GetInteger("gVRMSAA", 1);
+    // Note: Swapchain MSAA is not widely supported in OpenXR. 
+    // We force 1 for now to prevent crashes.
+    int msaa = 1; 
 
     for (int i = 0; i < 2; i++) {
         mSwapchains[i].width = (int32_t)(configViews[i].recommendedImageRectWidth * supersampling);
@@ -644,7 +622,11 @@ bool VRRuntime::CreateSwapchains() {
         createInfo.sampleCount = (uint32_t)msaa;
         createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 
-        xrCreateSwapchain(mSession, &createInfo, &mSwapchains[i].handle);
+        XrResult res = xrCreateSwapchain(mSession, &createInfo, &mSwapchains[i].handle);
+        if (XR_FAILED(res)) {
+            SPDLOG_ERROR("xrCreateSwapchain failed for eye {} with error: {}", i, (int)res);
+            return false;
+        }
 
         uint32_t imageCount = 0;
         xrEnumerateSwapchainImages(mSwapchains[i].handle, 0, &imageCount, nullptr);
@@ -781,7 +763,6 @@ void VRRuntime::SetQuadSize(int layerIndex, XrExtent2Df size) {
 
 void VRRuntime::HandleSessionState(XrSessionState state) {
     mSessionState = state;
-    SPDLOG_INFO("OpenXR Session State -> {}", (int)state);
     if (state == XR_SESSION_STATE_READY) {
         XrSessionBeginInfo beginInfo = { XR_TYPE_SESSION_BEGIN_INFO };
         beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;

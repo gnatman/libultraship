@@ -1511,15 +1511,9 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
 
         float x, y, z, w;
 
+        // Determine if this is a standard VR 3D pass or a protected pass
         bool isOrtho = fabsf(mRsp->P_matrix[3][3] - 1.0f) < 0.01f;
         bool applyVR = mVREnabled && !mInHudPass && !isOrtho;
-
-        if (mVREnabled && !mInHudPass && isOrtho) {
-            static int orthoLogCount = 0;
-            if (orthoLogCount++ % 2000 == 0) {
-                SPDLOG_INFO("VR Ortho Protection: Skipped VR perspective for ortho matrix. P_matrix[3][3]={}", mRsp->P_matrix[3][3]);
-            }
-        }
 
         if (applyVR) {
             // 1. Transform vertex to Game Camera Space using game's current ModelView
