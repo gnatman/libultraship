@@ -13,6 +13,7 @@
 #include "ship/controller/controldeck/ControlDeck.h"
 #include "ship/window/FileDropMgr.h"
 #include "fast/backends/gfx_sdl.h"
+#include "vr/VRToggle.h"
 
 #ifdef __OpenBSD__
 #include <sys/sysctl.h>
@@ -735,13 +736,22 @@ void GfxWindowBackendSDL2::SyncFramerateWithTime() const {
 void GfxWindowBackendSDL2::SwapBuffersBegin() {
     bool nextVsyncEnabled = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_VSYNC_ENABLED, 1);
 
-    if (mVsyncEnabled != nextVsyncEnabled) {
-        mVsyncEnabled = nextVsyncEnabled;
-        SDL_GL_SetSwapInterval(mVsyncEnabled ? 1 : 0);
-        SDL_RenderSetVSync(mRenderer, mVsyncEnabled ? 1 : 0);
+    if (Ship::VRToggle::IsVREnabled()) {
+        if (mVsyncEnabled != 0) {
+            mVsyncEnabled = 0;
+            SDL_GL_SetSwapInterval(0);
+            SDL_RenderSetVSync(mRenderer, 0);
+        }
+        // Skip SyncFramerateWithTime, let OpenXR handle pacing via xrWaitFrame
+    } else {
+        if (mVsyncEnabled != nextVsyncEnabled) {
+            mVsyncEnabled = nextVsyncEnabled;
+            SDL_GL_SetSwapInterval(mVsyncEnabled ? 1 : 0);
+            SDL_RenderSetVSync(mRenderer, mVsyncEnabled ? 1 : 0);
+        }
+        SyncFramerateWithTime();
     }
 
-    SyncFramerateWithTime();
     SDL_GL_SwapWindow(mWnd);
 }
 

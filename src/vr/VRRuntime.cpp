@@ -74,9 +74,13 @@ bool VRRuntime::Init() {
     xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, props.data());
     
     bool hasD3D11 = false;
+    mRefreshRateExtensionSupported = false;
     for (const auto& p : props) {
         if (strcmp(p.extensionName, XR_KHR_D3D11_ENABLE_EXTENSION_NAME) == 0) {
             hasD3D11 = true;
+        }
+        if (strcmp(p.extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0) {
+            mRefreshRateExtensionSupported = true;
         }
     }
 
@@ -487,6 +491,9 @@ void VRRuntime::UpdatePose(XrTime predictedTime) {
 bool VRRuntime::CreateInstance() {
     std::vector<const char*> extensions;
     extensions.push_back(XR_KHR_D3D11_ENABLE_EXTENSION_NAME);
+    if (mRefreshRateExtensionSupported) {
+        extensions.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    }
 
     XrInstanceCreateInfo createInfo = { XR_TYPE_INSTANCE_CREATE_INFO };
     createInfo.next = nullptr;
@@ -504,6 +511,11 @@ bool VRRuntime::CreateInstance() {
         SPDLOG_ERROR("xrCreateInstance failed with error: {}", (int)result);
         return false;
     }
+
+    if (mRefreshRateExtensionSupported) {
+        xrGetInstanceProcAddr(mInstance, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction*)&m_xrGetDisplayRefreshRateFB);
+    }
+
     return true;
 }
 
@@ -770,6 +782,16 @@ void VRRuntime::HandleSessionState(XrSessionState state) {
     } else if (state == XR_SESSION_STATE_STOPPING) {
         xrEndSession(mSession);
     }
+}
+
+float VRRuntime::GetRefreshRate() const {
+    if (mSession != XR_NULL_HANDLE && m_xrGetDisplayRefreshRateFB != nullptr) {
+        float refreshRate = 90.0f;
+        if (XR_SUCCEEDED(m_xrGetDisplayRefreshRateFB(mSession, &refreshRate))) {
+            return refreshRate;
+        }
+    }
+    return 90.0f; // Default to 90Hz if query fails or extension not present
 }
 
 } // namespace Ship

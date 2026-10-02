@@ -80,6 +80,8 @@ public:
     void EndFrame();
     bool ShouldRender() const { return mFrameState.shouldRender; }
 
+    float GetRefreshRate() const;
+
     void SetBaseTrackingSpace(const float* pos, const float* rotQuat);
 
 private:
@@ -108,6 +110,9 @@ private:
     float mBaseRotation[4] = { 0, 0, 0, 1 }; // Quaternion (x, y, z, w)
     uint32_t mFrameCounter = 0;
     
+    bool mRefreshRateExtensionSupported = false;
+    PFN_xrGetDisplayRefreshRateFB m_xrGetDisplayRefreshRateFB = nullptr;
+
     static std::shared_ptr<VRRuntime> mInstancePtr;
 };
 
