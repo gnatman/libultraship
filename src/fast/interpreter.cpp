@@ -555,12 +555,26 @@ static uint32_t GetEffectiveLineSize(uint32_t lineSizeBytes, uint32_t fullImageL
     return tileLineSizeBytes;
 }
 
+static const uint8_t* GetReplacementDataSafe(const std::map<std::string, MaskedTextureEntry, std::less<>>& maskedTextures,
+                                             const RawTexMetadata* metadata) {
+    if (metadata != nullptr && metadata->resource != nullptr) {
+        auto it = maskedTextures.find(Interpreter::GetBaseTexturePath(metadata->resource->GetInitData()->Path));
+        if (it != maskedTextures.end()) {
+            return it->second.replacementData;
+        }
+    }
+    return nullptr;
+}
+
 void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureRgba16: null texture address for tile {}", tile);
@@ -600,13 +614,24 @@ void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
         fullImageLineSizeBytes = width * 2;
     }
 
+    uint32_t stride = fullImageLineSizeBytes / 2;
+    if (stride < width || (height > 1 && (height - 1) * stride * 2 + width * 2 > sizeBytes)) {
+        stride = width;
+    }
+
     uint32_t i = 0;
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t clrIdx = (y * (fullImageLineSizeBytes / 2)) + (x);
+            uint32_t clrIdx = (y * stride) + x;
+            uint32_t byteOffset = 2 * clrIdx;
 
-            uint16_t col16 = (addr[2 * clrIdx] << 8) | addr[2 * clrIdx + 1];
+            uint16_t col16 = 0;
+            if (byteOffset + 1 < sizeBytes) {
+                col16 = (addr[byteOffset] << 8) | addr[byteOffset + 1];
+            } else if (byteOffset < sizeBytes) {
+                col16 = (addr[byteOffset] << 8);
+            }
             uint8_t a = col16 & 1;
             uint8_t r = col16 >> 11;
             uint8_t g = (col16 >> 6) & 0x1f;
@@ -625,10 +650,13 @@ void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureRgba32(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureRgba32: null texture address for tile {}", tile);
@@ -668,14 +696,26 @@ void Interpreter::ImportTextureRgba32(int tile, bool importReplacement) {
 
     // Copy pixel by pixel, respecting full image stride (handles sub-tile loads)
     uint32_t fullImageStridePixels = full_image_line_size_bytes / 4;
+    if (fullImageStridePixels < width || (height > 1 && (height - 1) * fullImageStridePixels * 4 + width * 4 > size_bytes)) {
+        fullImageStridePixels = width;
+    }
+
     uint32_t i = 0;
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
             uint32_t srcIdx = y * fullImageStridePixels + x;
-            mTexUploadBuffer[4 * i + 0] = addr[4 * srcIdx + 0];
-            mTexUploadBuffer[4 * i + 1] = addr[4 * srcIdx + 1];
-            mTexUploadBuffer[4 * i + 2] = addr[4 * srcIdx + 2];
-            mTexUploadBuffer[4 * i + 3] = addr[4 * srcIdx + 3];
+            uint32_t byteOffset = 4 * srcIdx;
+            if (byteOffset + 3 < size_bytes) {
+                mTexUploadBuffer[4 * i + 0] = addr[byteOffset + 0];
+                mTexUploadBuffer[4 * i + 1] = addr[byteOffset + 1];
+                mTexUploadBuffer[4 * i + 2] = addr[byteOffset + 2];
+                mTexUploadBuffer[4 * i + 3] = addr[byteOffset + 3];
+            } else {
+                mTexUploadBuffer[4 * i + 0] = 0;
+                mTexUploadBuffer[4 * i + 1] = 0;
+                mTexUploadBuffer[4 * i + 2] = 0;
+                mTexUploadBuffer[4 * i + 3] = 0;
+            }
             i++;
         }
     }
@@ -684,10 +724,13 @@ void Interpreter::ImportTextureRgba32(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureIA4(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureIA4: null texture address for tile {}", tile);
@@ -708,11 +751,17 @@ void Interpreter::ImportTextureIA4(int tile, bool importReplacement) {
         fullImageLineSizeBytes = widthBytes;
     }
 
+    uint32_t stridePixels = fullImageLineSizeBytes * 2;
+    if (stridePixels < width || (height > 1 && (height - 1) * (stridePixels / 2) + (width / 2) > sizeBytes)) {
+        stridePixels = width;
+    }
+
     uint32_t i = 0;
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t srcPixelIdx = y * (fullImageLineSizeBytes * 2) + x;
-            uint8_t byte = addr[srcPixelIdx / 2];
+            uint32_t srcPixelIdx = y * stridePixels + x;
+            uint32_t byteOffset = srcPixelIdx / 2;
+            uint8_t byte = (byteOffset < sizeBytes) ? addr[byteOffset] : 0;
             uint8_t part = (byte >> (4 - (srcPixelIdx % 2) * 4)) & 0xf;
             uint8_t intensity = part >> 1;
             uint8_t alpha = part & 1;
@@ -729,10 +778,13 @@ void Interpreter::ImportTextureIA4(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureIA8(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureIA8: null texture address for tile {}", tile);
@@ -752,12 +804,18 @@ void Interpreter::ImportTextureIA8(int tile, bool importReplacement) {
         fullImageLineSizeBytes = width;
     }
 
+    uint32_t stride = fullImageLineSizeBytes;
+    if (stride < width || (height > 1 && (height - 1) * stride + width > sizeBytes)) {
+        stride = width;
+    }
+
     uint32_t i = 0;
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t srcIdx = y * fullImageLineSizeBytes + x;
-            uint8_t intensity = addr[srcIdx] >> 4;
-            uint8_t alpha = addr[srcIdx] & 0xf;
+            uint32_t srcIdx = y * stride + x;
+            uint8_t byte = (srcIdx < sizeBytes) ? addr[srcIdx] : 0;
+            uint8_t intensity = byte >> 4;
+            uint8_t alpha = byte & 0xf;
             mTexUploadBuffer[4 * i + 0] = SCALE_4_8(intensity);
             mTexUploadBuffer[4 * i + 1] = SCALE_4_8(intensity);
             mTexUploadBuffer[4 * i + 2] = SCALE_4_8(intensity);
@@ -771,10 +829,13 @@ void Interpreter::ImportTextureIA8(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureIA16(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureIA16: null texture address for tile {}", tile);
@@ -796,14 +857,20 @@ void Interpreter::ImportTextureIA16(int tile, bool importReplacement) {
         full_image_line_size_bytes = width * 2;
     }
 
+    uint32_t stride = full_image_line_size_bytes / 2;
+    if (stride < width || (height > 1 && (height - 1) * stride * 2 + width * 2 > size_bytes)) {
+        stride = width;
+    }
+
     uint32_t i = 0;
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t clrIdx = (y * (full_image_line_size_bytes / 2)) + (x);
+            uint32_t clrIdx = (y * stride) + x;
+            uint32_t byteOffset = 2 * clrIdx;
 
-            uint8_t intensity = addr[2 * clrIdx];
-            uint8_t alpha = addr[2 * clrIdx + 1];
+            uint8_t intensity = (byteOffset < size_bytes) ? addr[byteOffset] : 0;
+            uint8_t alpha = (byteOffset + 1 < size_bytes) ? addr[byteOffset + 1] : 0;
             uint8_t r = intensity;
             uint8_t g = intensity;
             uint8_t b = intensity;
@@ -821,10 +888,13 @@ void Interpreter::ImportTextureIA16(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureI4(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureI4: null texture address for tile {}", tile);
@@ -846,13 +916,18 @@ void Interpreter::ImportTextureI4(int tile, bool importReplacement) {
         fullImageLineSizeBytes = width / 2;
     }
 
+    uint32_t stridePixels = fullImageLineSizeBytes * 2;
+    if (stridePixels < width || (height > 1 && (height - 1) * (stridePixels / 2) + (width / 2) > sizeBytes)) {
+        stridePixels = width;
+    }
+
     uint32_t i = 0;
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t clrIdx = (y * (fullImageLineSizeBytes * 2)) + (x);
-
-            uint8_t byte = addr[clrIdx / 2];
+            uint32_t clrIdx = (y * stridePixels) + x;
+            uint32_t byteOffset = clrIdx / 2;
+            uint8_t byte = (byteOffset < sizeBytes) ? addr[byteOffset] : 0;
             uint8_t part = (byte >> (4 - (clrIdx % 2) * 4)) & 0xf;
             uint8_t intensity = part;
             uint8_t r = intensity;
@@ -873,10 +948,13 @@ void Interpreter::ImportTextureI4(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureI8(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureI8: null texture address for tile {}", tile);
@@ -896,10 +974,16 @@ void Interpreter::ImportTextureI8(int tile, bool importReplacement) {
         fullImageLineSizeBytes = width;
     }
 
+    uint32_t stride = fullImageLineSizeBytes;
+    if (stride < width || (height > 1 && (height - 1) * stride + width > sizeBytes)) {
+        stride = width;
+    }
+
     uint32_t i = 0;
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint8_t intensity = addr[y * fullImageLineSizeBytes + x];
+            uint32_t srcIdx = y * stride + x;
+            uint8_t intensity = (srcIdx < sizeBytes) ? addr[srcIdx] : 0;
             mTexUploadBuffer[4 * i + 0] = intensity;
             mTexUploadBuffer[4 * i + 1] = intensity;
             mTexUploadBuffer[4 * i + 2] = intensity;
@@ -915,10 +999,13 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     uint32_t fullImageLineSizeBytes =
         mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].full_image_line_size_bytes;
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureCi4: null texture address for tile {}", tile);
@@ -970,11 +1057,17 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
         fullImageLineSizeBytes = resultLineSizeBytes;
     }
 
+    uint32_t stridePixels = fullImageLineSizeBytes * 2;
+    if (stridePixels < width || (height > 1 && (height - 1) * (stridePixels / 2) + (width / 2) > sizeBytes)) {
+        stridePixels = width;
+    }
+
     uint32_t i = 0;
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t srcPixelIdx = y * (fullImageLineSizeBytes * 2) + x;
-            uint8_t byte = addr[srcPixelIdx / 2];
+            uint32_t srcPixelIdx = y * stridePixels + x;
+            uint32_t byteOffset = srcPixelIdx / 2;
+            uint8_t byte = (byteOffset < sizeBytes) ? addr[byteOffset] : 0;
             uint8_t idx = (byte >> (4 - (srcPixelIdx % 2) * 4)) & 0xf;
             uint16_t col16 = (palette[idx * 2] << 8) | palette[idx * 2 + 1]; // Big endian load
             uint8_t a = col16 & 1;
@@ -994,10 +1087,13 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureCi8: null texture address for tile {}", tile);
@@ -1017,7 +1113,7 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
 
     for (uint32_t i = 0, j = 0; i < sizeBytes; j += fullImageLineSizeBytes - lineSizeBytes) {
         for (uint32_t k = 0; k < lineSizeBytes; i++, k++, j++) {
-            uint8_t idx = addr[j];
+            uint8_t idx = (j < sizeBytes) ? addr[j] : 0;
             uint16_t col16 = (mRdp->palettes[idx / 128][(idx % 128) * 2] << 8) |
                              mRdp->palettes[idx / 128][(idx % 128) * 2 + 1]; // Big endian load
             uint8_t a = col16 & 1;
@@ -1063,10 +1159,13 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureImg(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureImg: null texture address for tile {}", tile);
@@ -1080,10 +1179,13 @@ void Interpreter::ImportTextureImg(int tile, bool importReplacement) {
 
 void Interpreter::ImportTextureRaw(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* addr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    const uint8_t* addr = nullptr;
+    if (importReplacement) {
+        addr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (addr == nullptr) {
+        addr = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].addr;
+    }
 
     if (addr == nullptr) {
         SPDLOG_ERROR("ImportTextureRaw: null texture address for tile {}", tile);
@@ -1167,10 +1269,13 @@ void Interpreter::ImportTexture(int i, int tile, bool importReplacement) {
     uint32_t origSizeBytes = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].orig_size_bytes;
 
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
-    const uint8_t* origAddr =
-        importReplacement && (metadata->resource != nullptr)
-            ? mMaskedTextures.find(GetBaseTexturePath(metadata->resource->GetInitData()->Path))->second.replacementData
-            : mRdp->loaded_texture[tmemIdex].addr;
+    const uint8_t* origAddr = nullptr;
+    if (importReplacement) {
+        origAddr = GetReplacementDataSafe(mMaskedTextures, metadata);
+    }
+    if (origAddr == nullptr) {
+        origAddr = mRdp->loaded_texture[tmemIdex].addr;
+    }
 
     // Check if this texture address is a registered GPU framebuffer mirror.
     // If so, bind the GPU FB directly — full resolution, no CPU readback needed.
