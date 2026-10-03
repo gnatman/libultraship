@@ -204,6 +204,12 @@ void VRRuntime::Update() {
                 HandleSessionState(stateEvent->state);
                 break;
             }
+            case XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB: {
+                auto refreshEvent = reinterpret_cast<XrEventDataDisplayRefreshRateChangedFB*>(&event);
+                SPDLOG_INFO("OpenXR Display Refresh Rate changed from {:.1f} Hz to {:.1f} Hz",
+                    refreshEvent->fromDisplayRefreshRate, refreshEvent->toDisplayRefreshRate);
+                break;
+            }
             default:
                 break;
         }
@@ -219,9 +225,22 @@ bool VRRuntime::BeginFrame() {
         return false;
     }
 
+    auto now = std::chrono::high_resolution_clock::now();
+    if (mFrameStartTime.time_since_epoch().count() > 0) {
+        float dt = std::chrono::duration<float, std::milli>(now - mFrameStartTime).count();
+        mFrameTimeMs = mFrameTimeMs * 0.9f + dt * 0.1f;
+    }
+    mFrameStartTime = now;
+
+    auto waitStart = std::chrono::high_resolution_clock::now();
     XrFrameWaitInfo waitInfo = { XR_TYPE_FRAME_WAIT_INFO };
     mFrameState = { XR_TYPE_FRAME_STATE };
     XrResult res = xrWaitFrame(mSession, &waitInfo, &mFrameState);
+    auto waitEnd = std::chrono::high_resolution_clock::now();
+    float waitDt = std::chrono::duration<float, std::milli>(waitEnd - waitStart).count();
+    mWaitTimeMs = mWaitTimeMs * 0.9f + waitDt * 0.1f;
+    mWorkStartTime = waitEnd;
+
     if (XR_FAILED(res)) return false;
 
     XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };
@@ -286,6 +305,12 @@ void VRRuntime::EndFrame() {
     XrResult res = xrEndFrame(mSession, &endInfo);
     if (XR_FAILED(res)) {
         SPDLOG_ERROR("xrEndFrame failed: {} (Tracked: {})", (int)res, (mViewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0);
+    }
+
+    if (mWorkStartTime.time_since_epoch().count() > 0) {
+        auto workEnd = std::chrono::high_resolution_clock::now();
+        float renderDt = std::chrono::duration<float, std::milli>(workEnd - mWorkStartTime).count();
+        mRenderTimeMs = mRenderTimeMs * 0.9f + renderDt * 0.1f;
     }
 }
 
@@ -372,17 +397,63 @@ void VRRuntime::DrawPerformanceOverlay() {
         ImGui::Text("World Scale: %.2fx", cvars->GetFloat("gVRWorldScale", 1.0f));
         ImGui::Text("IPD Scale: %.2fx", cvars->GetFloat("gVRIPDScale", 1.0f));
         
+        float currentRate = GetRefreshRate();
+        ImGui::Text("Display Refresh Rate: %.1f Hz", currentRate);
+        auto supportedRates = GetSupportedRefreshRates();
+        if (supportedRates.size() > 1) {
+            ImGui::Text("Switch Rate:");
+            for (float r : supportedRates) {
+                ImGui::SameLine();
+                char label[32];
+                snprintf(label, sizeof(label), "%.0fHz", r);
+                if (ImGui::Button(label)) {
+                    SetRefreshRate(r);
+                    cvars->SetFloat("gVRDesiredRefreshRate", r);
+                    cvars->Save();
+                }
+            }
+        }
+        float targetBudget = currentRate > 0.0f ? 1000.0f / currentRate : 8.33f;
+        ImGui::Text("Total Frame Interval: %.2f ms (%.1f FPS)", mFrameTimeMs, mFrameTimeMs > 0.0f ? 1000.0f / mFrameTimeMs : 0.0f);
+        ImGui::Text("  Target Frame Budget: %.2f ms", targetBudget);
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Frame Time Budget Breakdown:");
+        ImGui::Text("  1. HMD Sync / Idle (xrWaitFrame):  %.2f ms", mWaitTimeMs);
+        ImGui::Text("  2. VR Stereo Render (L+R Eyes):    %.2f ms", mRenderTimeMs);
+        ImGui::Text("  3. Desktop Mirror & UI Present:    %.2f ms", mDesktopTimeMs);
+        ImGui::Text("  4. N64 Game Logic & Audio Sync:    %.2f ms", mGameLogicTimeMs);
+        float measuredSum = mWaitTimeMs + mRenderTimeMs + mDesktopTimeMs + mGameLogicTimeMs;
+        float unaccounted = mFrameTimeMs > measuredSum ? (mFrameTimeMs - measuredSum) : 0.0f;
+        ImGui::Text("  Sum of Measured Stages:            %.2f ms", measuredSum);
+        if (unaccounted > 0.1f) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "  Thread / OS Scheduling Gap:        %.2f ms", unaccounted);
+        }
+        ImGui::Separator();
+
+        float totalPcWork = mRenderTimeMs + mDesktopTimeMs + mGameLogicTimeMs;
+        if (targetBudget > 0.0f) {
+            float headroom = (1.0f - (totalPcWork / targetBudget)) * 100.0f;
+            if (headroom >= 20.0f) {
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Total PC Work: %.2f ms (+%.0f%% headroom)", totalPcWork, headroom);
+            } else if (headroom >= 0.0f) {
+                ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.2f, 1.0f), "Total PC Work: %.2f ms (+%.0f%% headroom)", totalPcWork, headroom);
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Total PC Work: %.2f ms (EXCEEDS %.2f ms budget!)", totalPcWork, targetBudget);
+            }
+        }
+        ImGui::Separator();
+        
         static float frameTimes[120] = {0};
         static int offset = 0;
-        frameTimes[offset] = ImGui::GetIO().DeltaTime * 1000.0f;
+        frameTimes[offset] = mFrameTimeMs > 0.0f ? mFrameTimeMs : ImGui::GetIO().DeltaTime * 1000.0f;
         offset = (offset + 1) % 120;
         
         float avg = 0;
         for (int i = 0; i < 120; i++) avg += frameTimes[i];
         avg /= 120.0f;
         
-        ImGui::Text("Avg Frame Time: %.2f ms (%.1f FPS)", avg, 1000.0f / avg);
-        ImGui::PlotLines("##FrameTimes", frameTimes, 120, offset, nullptr, 0.0f, 33.3f, ImVec2(0, 40));
+        ImGui::Text("Smoothed Frame Time: %.2f ms", avg);
+        ImGui::PlotLines("##FrameTimes", frameTimes, 120, offset, nullptr, 0.0f, 16.6f, ImVec2(0, 40));
     }
     ImGui::End();
 }
@@ -514,6 +585,8 @@ bool VRRuntime::CreateInstance() {
 
     if (mRefreshRateExtensionSupported) {
         xrGetInstanceProcAddr(mInstance, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction*)&m_xrGetDisplayRefreshRateFB);
+        xrGetInstanceProcAddr(mInstance, "xrEnumerateDisplayRefreshRatesFB", (PFN_xrVoidFunction*)&m_xrEnumerateDisplayRefreshRatesFB);
+        xrGetInstanceProcAddr(mInstance, "xrRequestDisplayRefreshRateFB", (PFN_xrVoidFunction*)&m_xrRequestDisplayRefreshRateFB);
     }
 
     return true;
@@ -576,6 +649,28 @@ bool VRRuntime::CreateSession() {
 
     spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
     xrCreateReferenceSpace(mSession, &spaceInfo, &mViewSpace);
+
+    if (mRefreshRateExtensionSupported && m_xrRequestDisplayRefreshRateFB != nullptr) {
+        std::vector<float> rates = GetSupportedRefreshRates();
+        std::string rateStr = "";
+        bool has120 = false;
+        for (float r : rates) {
+            rateStr += std::to_string((int)std::round(r)) + "Hz ";
+            if (std::abs(r - 120.0f) < 1.0f) {
+                has120 = true;
+            }
+        }
+        SPDLOG_INFO("OpenXR Supported Display Refresh Rates: {}", rateStr.empty() ? "None reported" : rateStr);
+
+        auto cvars = Context::GetInstance()->GetConsoleVariables();
+        float desiredRate = cvars->GetFloat("gVRDesiredRefreshRate", 120.0f);
+
+        if (has120 && desiredRate >= 120.0f) {
+            SetRefreshRate(120.0f);
+        } else if (desiredRate > 0.0f) {
+            SetRefreshRate(desiredRate);
+        }
+    }
 
     return true;
 }
@@ -792,6 +887,39 @@ float VRRuntime::GetRefreshRate() const {
         }
     }
     return 90.0f; // Default to 90Hz if query fails or extension not present
+}
+
+bool VRRuntime::SetRefreshRate(float rate) {
+    if (mSession == XR_NULL_HANDLE || m_xrRequestDisplayRefreshRateFB == nullptr) {
+        return false;
+    }
+    XrResult res = m_xrRequestDisplayRefreshRateFB(mSession, rate);
+    if (XR_FAILED(res)) {
+        SPDLOG_WARN("xrRequestDisplayRefreshRateFB({:.1f} Hz) failed with error: {}", rate, (int)res);
+        return false;
+    }
+    SPDLOG_INFO("xrRequestDisplayRefreshRateFB({:.1f} Hz) requested successfully", rate);
+    return true;
+}
+
+std::vector<float> VRRuntime::GetSupportedRefreshRates() const {
+    std::vector<float> rates;
+    if (mSession != XR_NULL_HANDLE && m_xrEnumerateDisplayRefreshRatesFB != nullptr) {
+        uint32_t count = 0;
+        if (XR_SUCCEEDED(m_xrEnumerateDisplayRefreshRatesFB(mSession, 0, &count, nullptr)) && count > 0) {
+            rates.resize(count);
+            m_xrEnumerateDisplayRefreshRatesFB(mSession, count, &count, rates.data());
+        }
+    }
+    return rates;
+}
+
+void VRRuntime::RecordDesktopTime(float ms) {
+    mDesktopTimeMs = mDesktopTimeMs * 0.9f + ms * 0.1f;
+}
+
+void VRRuntime::RecordGameLogicTime(float ms) {
+    mGameLogicTimeMs = mGameLogicTimeMs * 0.9f + ms * 0.1f;
 }
 
 } // namespace Ship

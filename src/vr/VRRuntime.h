@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <chrono>
 #include "ship/window/VRPose.h"
 
 struct ID3D11Texture2D;
@@ -81,6 +82,11 @@ public:
     bool ShouldRender() const { return mFrameState.shouldRender; }
 
     float GetRefreshRate() const;
+    bool SetRefreshRate(float rate);
+    std::vector<float> GetSupportedRefreshRates() const;
+
+    void RecordDesktopTime(float ms);
+    void RecordGameLogicTime(float ms);
 
     void SetBaseTrackingSpace(const float* pos, const float* rotQuat);
 
@@ -109,9 +115,19 @@ private:
     float mBasePosition[3] = { 0, 0, 0 };
     float mBaseRotation[4] = { 0, 0, 0, 1 }; // Quaternion (x, y, z, w)
     uint32_t mFrameCounter = 0;
-    
+
+    float mWaitTimeMs = 0.0f;
+    float mRenderTimeMs = 0.0f;
+    float mDesktopTimeMs = 0.0f;
+    float mGameLogicTimeMs = 0.0f;
+    float mFrameTimeMs = 0.0f;
+    std::chrono::high_resolution_clock::time_point mFrameStartTime;
+    std::chrono::high_resolution_clock::time_point mWorkStartTime;
+
     bool mRefreshRateExtensionSupported = false;
     PFN_xrGetDisplayRefreshRateFB m_xrGetDisplayRefreshRateFB = nullptr;
+    PFN_xrEnumerateDisplayRefreshRatesFB m_xrEnumerateDisplayRefreshRatesFB = nullptr;
+    PFN_xrRequestDisplayRefreshRateFB m_xrRequestDisplayRefreshRateFB = nullptr;
 
     static std::shared_ptr<VRRuntime> mInstancePtr;
 };

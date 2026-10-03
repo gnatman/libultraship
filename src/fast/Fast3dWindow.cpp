@@ -18,7 +18,7 @@
 #include "fast/backends/gfx_window_manager_api.h"
 
 #include "fast/Fast3dGui.h"
-
+#include <chrono>
 #include <fstream>
 
 namespace Fast {
@@ -199,10 +199,16 @@ bool Fast3dWindow::IsFrameReady() {
 bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtxReplacements) {
     std::shared_ptr<Window> wnd = Ship::Context::GetInstance()->GetWindow();
 
-    // Skip dropped frames
+    // Skip dropped frames (only for desktop window; in VR mode OpenXR handles frame pacing via xrWaitFrame)
+#ifdef ENABLE_VR
+    if (!Ship::VRToggle::IsVREnabled() && !wnd->IsFrameReady()) {
+        return false;
+    }
+#else
     if (!wnd->IsFrameReady()) {
         return false;
     }
+#endif
 
     auto gui = wnd->GetGui();
     // Setup mouse state manager
@@ -313,6 +319,8 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
     mInterpreter->Run(commands, mtxReplacements);
 #endif
 
+    auto desktopStart = std::chrono::high_resolution_clock::now();
+
     // Renders the game frame buffer to the final window and finishes the GUI
     gui->EndDraw();
 
@@ -331,6 +339,14 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
     // Finalize swap buffers
     mInterpreter->EndFrame();
+
+#ifdef ENABLE_VR
+    if (Ship::VRToggle::IsVREnabled()) {
+        auto desktopEnd = std::chrono::high_resolution_clock::now();
+        float desktopMs = std::chrono::duration<float, std::milli>(desktopEnd - desktopStart).count();
+        Ship::VRRuntime::GetInstance()->RecordDesktopTime(desktopMs);
+    }
+#endif
 
     return true;
 }

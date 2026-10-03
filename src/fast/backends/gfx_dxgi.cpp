@@ -970,13 +970,15 @@ void GfxWindowBackendDXGI::SwapBuffersEnd() {
     QueryPerformanceCounter(&t0);
     QueryPerformanceCounter(&t1);
 
+    bool vrActive = Ship::VRToggle::IsVREnabled();
+
     if (mAppliedMaxFrameLatency > mMaxFrameLatency) {
         // If latency is decreased, you have to wait the same amout of times as the old latency was set to
         int times_to_wait = mAppliedMaxFrameLatency;
         int latency = mMaxFrameLatency;
         mMaxFrameLatency = 1;
         ApplyMaxFrameLatency(false);
-        if (mWaitableObject != nullptr) {
+        if (!vrActive && mWaitableObject != nullptr) {
             while (times_to_wait > 0) {
                 WaitForSingleObject(mWaitableObject, INFINITE);
                 times_to_wait--;
@@ -990,7 +992,7 @@ void GfxWindowBackendDXGI::SwapBuffersEnd() {
         ApplyMaxFrameLatency(false);
     }
 
-    if (!mDroppedFrame) {
+    if (!mDroppedFrame && !vrActive) {
         if (mWaitableObject != nullptr) {
             WaitForSingleObject(mWaitableObject, INFINITE);
         }
