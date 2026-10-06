@@ -135,6 +135,17 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
         mOverrideDSV = (ID3D11DepthStencilView*)dsv;
         mOverrideWidth = width;
         mOverrideHeight = height;
+
+        // Invalidate cached pipeline states so new target gets fresh bindings
+        mLastDepthTest = -1;
+        mLastDepthMask = -1;
+        mLastZmodeDecal = -1;
+        mLastShaderProgram = nullptr;
+        mLastBlendState.Reset();
+        mDepthStencilState.Reset();
+        mRasterizerState.Reset();
+        mLastVertexBufferStride = 0;
+        mLastPrimitaveTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
     }
 
     PFN_D3D11_CREATE_DEVICE mDX11CreateDevice;

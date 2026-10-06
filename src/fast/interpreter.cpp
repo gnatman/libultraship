@@ -142,7 +142,6 @@ void Interpreter::Flush() {
             return;
         }
 
-
         mRapi->SetCurrentPrimDepth((float)mRdp->prim_depth / N64_PRIM_DEPTH_MAX);
         mRapi->DrawTriangles(mBufVbo, mBufVboLen, mBufVboNumTris);
         mBufVboLen = 0;
@@ -1905,10 +1904,10 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
     }
 
     bool zmode_decal = (mRdp->other_mode_l & ZMODE_DEC) == ZMODE_DEC;
-    if (zmode_decal != mRenderingState.decal_mode) {
+    if ((zmode_decal ? 1 : 0) != mRenderingState.decal_mode) {
         Flush();
         mRapi->SetZmodeDecal(zmode_decal);
-        mRenderingState.decal_mode = zmode_decal;
+        mRenderingState.decal_mode = zmode_decal ? 1 : 0;
     }
 
     if (mRdp->viewport_or_scissor_changed) {
@@ -2131,10 +2130,10 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
         mRapi->LoadShader(prg);
         mRenderingState.mShaderProgram = prg;
     }
-    if (use_alpha != mRenderingState.alpha_blend) {
+    if ((use_alpha ? 1 : 0) != mRenderingState.alpha_blend) {
         Flush();
         mRapi->SetUseAlpha(use_alpha);
-        mRenderingState.alpha_blend = use_alpha;
+        mRenderingState.alpha_blend = use_alpha ? 1 : 0;
     }
     uint8_t numInputs;
     bool usedTextures[2];
@@ -4977,6 +4976,11 @@ void Interpreter::SpReset() {
     mRsp->lookat[1].dir[2] = 0;
     CalculateNormalDir(&mRsp->lookat[0], mRsp->current_lookat_coeffs[0]);
     CalculateNormalDir(&mRsp->lookat[1], mRsp->current_lookat_coeffs[1]);
+    mRsp->geometry_mode = 0;
+    mRsp->extra_geometry_mode = 0;
+    mRenderingState.depth_test_and_mask = 0xFF;
+    mRenderingState.decal_mode = 0xFF;
+    mRenderingState.alpha_blend = 0xFF;
 }
 
 void Interpreter::RegisterFbTexture(const void* cpuAddr, int fbId) {

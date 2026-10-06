@@ -245,6 +245,7 @@ bool Fast3dWindow::DrawAndRunGraphicsCommands(Gfx* commands, const std::unordere
 
                 uint32_t eyeImgIdx[2];
                 for (int eye = 0; eye < 2; eye++) {
+                    mHudPassDepth = 0;
                     // 1. Acquire Image from VR Runtime
                     uint32_t imgIdx = runtime->AcquireImage(eye);
                     eyeImgIdx[eye] = imgIdx;
@@ -530,6 +531,12 @@ void Fast3dWindow::BeginVRHudPass() {
 
     // Save original dimensions on the first entry of the pass.
     if (mHudPassDepth == 0) {
+        // Flush any pending eye-buffer draws before entering the HUD pass.
+        // This MUST happen for ALL eyes (eye 0, eye 1, etc.) before mInHudPass is set to true,
+        // otherwise any geometry remaining in mBufVbo from preceding 3D world rendering
+        // (such as the last actor/item box) will be swallowed by the HUD pass on eye > 0!
+        mInterpreter->Flush();
+
         mSavedDims = mInterpreter->mCurDimensions;
         mSavedCurrentEye = mInterpreter->GetCurrentEye();
     }

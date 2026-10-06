@@ -348,12 +348,12 @@ struct ColorCombiner {
 };
 
 struct RenderingState {
-    uint8_t depth_test_and_mask; // 1: depth test, 2: depth mask
-    bool decal_mode;
-    bool alpha_blend;
+    uint8_t depth_test_and_mask = 0xFF; // 1: depth test, 2: depth mask, 0xFF: uninitialized/invalid
+    uint8_t decal_mode = 0xFF;          // 0xFF: uninitialized/invalid
+    uint8_t alpha_blend = 0xFF;         // 0xFF: uninitialized/invalid
     struct XYWidthHeight viewport, scissor;
-    struct ShaderProgram* mShaderProgram;
-    TextureCacheNode* mTextures[SHADER_MAX_TEXTURES];
+    struct ShaderProgram* mShaderProgram = nullptr;
+    TextureCacheNode* mTextures[SHADER_MAX_TEXTURES] = {};
 };
 
 struct FBInfo {
@@ -572,6 +572,7 @@ class Interpreter {
     // F3DEX display list. While true, draws go to mVRHudRtv (the HUD quad
     // layer); while false, draws go to the eye RTV.
     bool mInHudPass = false;
+
 
     void SetVRMatrices(bool enabled, const float* projection, const float* view, int32_t width = 0, int32_t height = 0, void* rtv = nullptr, void* dsv = nullptr, int eye = 0) {
         mVREnabled = enabled;
