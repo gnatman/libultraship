@@ -13,6 +13,13 @@ SDLButtonToAnyMapping::~SDLButtonToAnyMapping() {
 }
 
 std::string SDLButtonToAnyMapping::GetPhysicalInputName() {
+    if (mControllerButton >= 100) {
+        int hatIndex = (mControllerButton - 100) / 4;
+        int hatDir = (mControllerButton - 100) % 4;
+        const char* dirStr = (hatDir == 0) ? "Up" : (hatDir == 1) ? "Right" : (hatDir == 2) ? "Down" : "Left";
+        return StringHelper::Sprintf("Hat %d %s", hatIndex, dirStr);
+    }
+
     switch (mControllerButton) {
         case SDL_CONTROLLER_BUTTON_A:
             return "A";

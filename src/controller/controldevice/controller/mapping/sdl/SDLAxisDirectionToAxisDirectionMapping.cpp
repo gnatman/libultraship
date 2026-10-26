@@ -12,10 +12,11 @@ namespace Ship {
 SDLAxisDirectionToAxisDirectionMapping::SDLAxisDirectionToAxisDirectionMapping(uint8_t portIndex, StickIndex stickIndex,
                                                                                Direction direction,
                                                                                int32_t sdlControllerAxis,
-                                                                               int32_t axisDirection)
+                                                                               int32_t axisDirection,
+                                                                               std::string deviceGuid)
     : ControllerInputMapping(PhysicalDeviceType::SDLGamepad),
       ControllerAxisDirectionMapping(PhysicalDeviceType::SDLGamepad, portIndex, stickIndex, direction),
-      SDLAxisDirectionToAnyMapping(sdlControllerAxis, axisDirection) {
+      SDLAxisDirectionToAnyMapping(sdlControllerAxis, axisDirection), mDeviceGuid(deviceGuid) {
 }
 
 float SDLAxisDirectionToAxisDirectionMapping::GetNormalizedAxisDirectionValue() {
@@ -23,11 +24,14 @@ float SDLAxisDirectionToAxisDirectionMapping::GetNormalizedAxisDirectionValue() 
         return 0.0f;
     }
 
-    // todo: i don't like making a vector here, not sure what a better solution is
     std::vector<float> normalizedValues = {};
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+    auto mgr = Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager();
+
+    for (const auto& [instanceId, gamepad] : mgr->GetConnectedSDLGamepadsForPort(mPortIndex)) {
+        if (!mDeviceGuid.empty() && mgr->GetDeviceGuidForInstanceId(instanceId) != mDeviceGuid) {
+            continue;
+        }
+
         const auto axisValue = SDL_GameControllerGetAxis(gamepad, mControllerAxis);
 
         if ((mAxisDirection == POSITIVE && axisValue < 0) || (mAxisDirection == NEGATIVE && axisValue > 0)) {
@@ -38,6 +42,23 @@ float SDLAxisDirectionToAxisDirectionMapping::GetNormalizedAxisDirectionValue() 
         // scale {-32768 ... +32767} to {-MAX_AXIS_RANGE ... +MAX_AXIS_RANGE}
         // and use the absolute value of it
         normalizedValues.push_back(fabs(axisValue * MAX_AXIS_RANGE / MAX_SDL_RANGE));
+    }
+
+    for (const auto& [instanceId, joystick] : mgr->GetConnectedSDLJoysticksForPort(mPortIndex)) {
+        if (!mDeviceGuid.empty() && mgr->GetDeviceGuidForInstanceId(instanceId) != mDeviceGuid) {
+            continue;
+        }
+
+        if ((int)mControllerAxis < SDL_JoystickNumAxes(joystick)) {
+            const auto axisValue = SDL_JoystickGetAxis(joystick, (int)mControllerAxis);
+
+            if ((mAxisDirection == POSITIVE && axisValue < 0) || (mAxisDirection == NEGATIVE && axisValue > 0)) {
+                normalizedValues.push_back(0.0f);
+                continue;
+            }
+
+            normalizedValues.push_back(fabs(axisValue * MAX_AXIS_RANGE / MAX_SDL_RANGE));
+        }
     }
 
     if (normalizedValues.size() == 0) {
@@ -60,6 +81,9 @@ void SDLAxisDirectionToAxisDirectionMapping::SaveToConfig() {
     CVarSetInteger(StringHelper::Sprintf("%s.Direction", mappingCvarKey.c_str()).c_str(), mDirection);
     CVarSetInteger(StringHelper::Sprintf("%s.SDLControllerAxis", mappingCvarKey.c_str()).c_str(), mControllerAxis);
     CVarSetInteger(StringHelper::Sprintf("%s.AxisDirection", mappingCvarKey.c_str()).c_str(), mAxisDirection);
+    if (!mDeviceGuid.empty()) {
+        CVarSetString(StringHelper::Sprintf("%s.DeviceGUID", mappingCvarKey.c_str()).c_str(), mDeviceGuid.c_str());
+    }
     CVarSave();
 }
 

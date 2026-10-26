@@ -383,6 +383,53 @@ class Interpreter {
 
     void SetNativeDimensions(float width, float height);
     void SetResolutionMultiplier(float multiplier);
+
+#ifdef ENABLE_VR
+    bool mVREnabled = false;
+    uint32_t mVROverrideWidth = 0;
+    uint32_t mVROverrideHeight = 0;
+    float mVROverrideProjection[16] = {0};
+    float mVROverrideView[16] = {0};
+    void* mVRRtv = nullptr;
+    void* mVRDsv = nullptr;
+    void* mVRHudRtv = nullptr;
+    void* mVRHudDsv = nullptr;
+    uint32_t mVRHudWidth = 0;
+    uint32_t mVRHudHeight = 0;
+    int mVRCurrentEye = 0;
+    bool mInHudPass = false;
+
+    void SetVRMatrices(bool enabled, const float* projection = nullptr, const float* view = nullptr, int32_t width = 0, int32_t height = 0, void* rtv = nullptr, void* dsv = nullptr, int eye = 0) {
+        mVREnabled = enabled;
+        if (enabled && projection && view) {
+            memcpy(mVROverrideProjection, projection, sizeof(mVROverrideProjection));
+            memcpy(mVROverrideView, view, sizeof(mVROverrideView));
+            mVROverrideWidth = width;
+            mVROverrideHeight = height;
+            mVRRtv = rtv;
+            mVRDsv = dsv;
+            mVRCurrentEye = eye;
+        }
+    }
+
+    void SetVRHudTarget(void* rtv, void* dsv, int32_t width, int32_t height) {
+        mVRHudRtv = rtv;
+        mVRHudDsv = dsv;
+        mVRHudWidth = width;
+        mVRHudHeight = height;
+    }
+    
+    void SetCurrentEye(int eye) {
+        mVRCurrentEye = eye;
+    }
+
+    int     GetCurrentEye()       const { return mVRCurrentEye; }
+    void*   GetCurrentRtv()       const { return mVRRtv; }
+    void*   GetCurrentDsv()       const { return mVRDsv; }
+    int32_t GetCurrentRtvWidth()  const { return mVROverrideWidth; }
+    int32_t GetCurrentRtvHeight() const { return mVROverrideHeight; }
+#endif
+
     void SetMsaaLevel(uint32_t level);
     void GetCurDimensions(uint32_t* width, uint32_t* height);
 

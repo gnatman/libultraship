@@ -24,6 +24,15 @@ int32_t osContInit(OSMesgQueue* mq, uint8_t* controllerBits, OSContStatus* statu
     }
 
     SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "1");
+#ifdef _WIN32
+    // Disable SDL RawInput for joysticks on Windows. SDL's RawInput driver has a known bug
+    // where it hardcodes an assumption of 16-bit (0..65535) axes centered at 0x8000 (32768).
+    // Flight sticks with 14-bit sensors (like Thrustmaster TCA Airbus / T.16000M) have their
+    // resting center at 8192, causing RawInput to report neutral as -24576 (large down deflection).
+    // Disabling RawInput falls back to DirectInput, which properly queries HID axis descriptors,
+    // applies Windows joystick calibration, and centers the neutral point at 0.
+    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+#endif
     if (SDL_Init(SDL_INIT_GAMECONTROLLER) != 0) {
         SPDLOG_ERROR("Failed to initialize SDL game controllers ({})", SDL_GetError());
         exit(EXIT_FAILURE);

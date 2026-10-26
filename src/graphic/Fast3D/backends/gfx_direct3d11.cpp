@@ -413,9 +413,8 @@ struct ShaderProgram* GfxRenderingAPIDX11::CreateAndLoadNewShader(uint64_t shade
         blend_desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
         blend_desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
         blend_desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-        blend_desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
-        blend_desc.RenderTarget[0].DestBlendAlpha =
-            D3D11_BLEND_ONE; // We initially clear alpha to 1.0f and want to keep it at 1.0f
+        blend_desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+        blend_desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
         blend_desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
         blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     } else {
@@ -821,10 +820,18 @@ void GfxRenderingAPIDX11::UpdateFramebufferParameters(int fb_id, uint32_t width,
 
 void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
     FramebufferDX11& fb = mFrameBuffers[fb_id];
-    mRenderTargetHeight = mTextures[fb.texture_id].height;
 
-    mContext->OMSetRenderTargets(1, fb.render_target_view.GetAddressOf(),
-                                 fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    if (mOverrideRTV != nullptr) {
+        mRenderTargetHeight = mOverrideHeight;
+        ID3D11RenderTargetView* rtv = (ID3D11RenderTargetView*)mOverrideRTV;
+        ID3D11DepthStencilView* dsv = (ID3D11DepthStencilView*)mOverrideDSV;
+        mContext->OMSetRenderTargets(1, &rtv, dsv);
+    } else {
+        mRenderTargetHeight = mTextures[fb.texture_id].height;
+
+        mContext->OMSetRenderTargets(1, fb.render_target_view.GetAddressOf(),
+                                     fb.has_depth_buffer ? fb.depth_stencil_view.Get() : nullptr);
+    }
 
     mCurrentFramebuffer = fb_id;
 
@@ -840,6 +847,17 @@ void GfxRenderingAPIDX11::StartDrawToFramebuffer(int fb_id, float noise_scale) {
 }
 
 void GfxRenderingAPIDX11::ClearFramebuffer(bool color, bool depth) {
+    if (mOverrideRTV != nullptr) {
+        if (color) {
+            const float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            mContext->ClearRenderTargetView((ID3D11RenderTargetView*)mOverrideRTV, clearColor);
+        }
+        if (depth && mOverrideDSV != nullptr) {
+            mContext->ClearDepthStencilView((ID3D11DepthStencilView*)mOverrideDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        }
+        return;
+    }
+
     FramebufferDX11& fb = mFrameBuffers[mCurrentFramebuffer];
     if (color) {
         const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };

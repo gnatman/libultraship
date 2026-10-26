@@ -11,6 +11,7 @@
 #include "controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 #include "controller/controldevice/controller/mapping/mouse/WheelHandler.h"
 #include "controller/controldeck/ControlDeck.h"
+#include "SDLInputDetection.h"
 
 namespace Ship {
 std::shared_ptr<ControllerButtonMapping> ButtonMappingFactory::CreateButtonMappingFromConfig(uint8_t portIndex,
@@ -125,42 +126,20 @@ ButtonMappingFactory::CreateDefaultSDLButtonMappings(uint8_t portIndex, CONTROLL
 
 std::shared_ptr<ControllerButtonMapping>
 ButtonMappingFactory::CreateButtonMappingFromSDLInput(uint8_t portIndex, CONTROLLERBUTTONS_T bitmask) {
-    std::shared_ptr<ControllerButtonMapping> mapping = nullptr;
+    DetectedSDLButton buttonInput;
+    DetectedSDLAxis axisInput;
 
-    for (auto [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             portIndex)) {
-        for (int32_t button = SDL_CONTROLLER_BUTTON_A; button < SDL_CONTROLLER_BUTTON_MAX; button++) {
-            if (SDL_GameControllerGetButton(gamepad, static_cast<SDL_GameControllerButton>(button))) {
-                mapping = std::make_shared<SDLButtonToButtonMapping>(portIndex, bitmask, button);
-                break;
-            }
+    if (SDLInputDetection::PollInput(portIndex, buttonInput, axisInput)) {
+        if (buttonInput.button != -1) {
+            return std::make_shared<SDLButtonToButtonMapping>(portIndex, bitmask, buttonInput.button);
         }
-
-        if (mapping != nullptr) {
-            break;
-        }
-
-        for (int32_t i = SDL_CONTROLLER_AXIS_LEFTX; i < SDL_CONTROLLER_AXIS_MAX; i++) {
-            const auto axis = static_cast<SDL_GameControllerAxis>(i);
-            const auto axisValue = SDL_GameControllerGetAxis(gamepad, axis) / 32767.0f;
-            int32_t axisDirection = 0;
-            if (axisValue < -0.7f) {
-                axisDirection = NEGATIVE;
-            } else if (axisValue > 0.7f) {
-                axisDirection = POSITIVE;
-            }
-
-            if (axisDirection == 0) {
-                continue;
-            }
-
-            mapping = std::make_shared<SDLAxisDirectionToButtonMapping>(portIndex, bitmask, axis, axisDirection);
-            break;
+        if (axisInput.axis != -1) {
+            return std::make_shared<SDLAxisDirectionToButtonMapping>(portIndex, bitmask, axisInput.axis,
+                                                                       axisInput.direction);
         }
     }
 
-    return mapping;
+    return nullptr;
 }
 
 std::shared_ptr<ControllerButtonMapping>

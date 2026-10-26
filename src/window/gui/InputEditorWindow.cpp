@@ -5,6 +5,7 @@
 #include "public/bridge/consolevariablebridge.h"
 #include "controller/controldevice/controller/mapping/sdl/SDLAxisDirectionToButtonMapping.h"
 #include "controller/controldeck/ControlDeck.h"
+#include "controller/controldevice/controller/mapping/factories/SDLInputDetection.h"
 
 #define SCALE_IMGUI_SIZE(value) ((value / 13.0f) * ImGui::GetFontSize())
 
@@ -1213,6 +1214,30 @@ void InputEditorWindow::DrawDeviceToggles(uint8_t portIndex) {
         ImGui::PopStyleColor();
         ImGui::PopItemFlag();
     }
+
+    for (const auto& [instanceId, name] : connectedDeviceManager->GetConnectedSDLJoystickNames()) {
+        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+        auto buttonColor = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+        auto buttonHoveredColor = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+        GetButtonColorsForPhysicalDeviceType(PhysicalDeviceType::SDLGamepad, buttonColor, buttonHoveredColor);
+        ImGui::PushStyleColor(ImGuiCol_Button, buttonColor);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, buttonHoveredColor);
+        auto notIgnored = !connectedDeviceManager->PortIsIgnoringInstanceId(portIndex, instanceId);
+        ImGui::PopItemFlag();
+        if (ImGui::Checkbox(StringHelper::Sprintf("###joy_instanceId_%d", instanceId).c_str(), &notIgnored)) {
+            if (notIgnored) {
+                connectedDeviceManager->UnignoreInstanceIdForPort(portIndex, instanceId);
+            } else {
+                connectedDeviceManager->IgnoreInstanceIdForPort(portIndex, instanceId);
+            }
+        };
+        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+        ImGui::SameLine();
+        ImGui::Button(StringHelper::Sprintf("%s %s (Joystick)", ICON_FA_GAMEPAD, name.c_str()).c_str());
+        ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+        ImGui::PopItemFlag();
+    }
 }
 
 void InputEditorWindow::DrawClearAllButton(uint8_t portIndex) {
@@ -1400,6 +1425,7 @@ void InputEditorWindow::DrawElement() {
 }
 
 void InputEditorWindow::OffsetMappingPopup() {
+    SDLInputDetection::ResetSession();
     const float HORIZONTAL_OFFSET = 10.0f;
     ImVec2 pos = ImGui::GetMousePos();
     pos.x += HORIZONTAL_OFFSET;

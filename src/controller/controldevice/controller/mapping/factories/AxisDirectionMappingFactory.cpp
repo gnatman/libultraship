@@ -14,6 +14,7 @@
 #include "controller/controldevice/controller/mapping/mouse/WheelHandler.h"
 
 #include "controller/controldeck/ControlDeck.h"
+#include "SDLInputDetection.h"
 
 namespace Ship {
 std::shared_ptr<ControllerAxisDirectionMapping>
@@ -29,6 +30,8 @@ AxisDirectionMappingFactory::CreateAxisDirectionMappingFromConfig(uint8_t portIn
             CVarGetInteger(StringHelper::Sprintf("%s.SDLControllerAxis", mappingCvarKey.c_str()).c_str(), -1);
         int32_t axisDirection =
             CVarGetInteger(StringHelper::Sprintf("%s.AxisDirection", mappingCvarKey.c_str()).c_str(), 0);
+        std::string deviceGuid =
+            CVarGetString(StringHelper::Sprintf("%s.DeviceGUID", mappingCvarKey.c_str()).c_str(), "");
 
         if ((direction != LEFT && direction != RIGHT && direction != UP && direction != DOWN) ||
             sdlControllerAxis == -1 || (axisDirection != NEGATIVE && axisDirection != POSITIVE)) {
@@ -39,7 +42,7 @@ AxisDirectionMappingFactory::CreateAxisDirectionMappingFromConfig(uint8_t portIn
         }
 
         return std::make_shared<SDLAxisDirectionToAxisDirectionMapping>(
-            portIndex, stickIndex, static_cast<Direction>(direction), sdlControllerAxis, axisDirection);
+            portIndex, stickIndex, static_cast<Direction>(direction), sdlControllerAxis, axisDirection, deviceGuid);
     }
 
     if (mappingClass == "SDLButtonToAxisDirectionMapping") {
@@ -157,43 +160,21 @@ AxisDirectionMappingFactory::CreateDefaultSDLAxisDirectionMappings(uint8_t portI
 std::shared_ptr<ControllerAxisDirectionMapping>
 AxisDirectionMappingFactory::CreateAxisDirectionMappingFromSDLInput(uint8_t portIndex, StickIndex stickIndex,
                                                                     Direction direction) {
-    std::shared_ptr<ControllerAxisDirectionMapping> mapping = nullptr;
+    DetectedSDLButton buttonInput;
+    DetectedSDLAxis axisInput;
 
-    for (auto [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             portIndex)) {
-        for (int32_t button = SDL_CONTROLLER_BUTTON_A; button < SDL_CONTROLLER_BUTTON_MAX; button++) {
-            if (SDL_GameControllerGetButton(gamepad, static_cast<SDL_GameControllerButton>(button))) {
-                mapping = std::make_shared<SDLButtonToAxisDirectionMapping>(portIndex, stickIndex, direction, button);
-                break;
-            }
+    if (SDLInputDetection::PollInput(portIndex, buttonInput, axisInput)) {
+        if (buttonInput.button != -1) {
+            return std::make_shared<SDLButtonToAxisDirectionMapping>(portIndex, stickIndex, direction,
+                                                                     buttonInput.button);
         }
-
-        if (mapping != nullptr) {
-            break;
-        }
-
-        for (int32_t i = SDL_CONTROLLER_AXIS_LEFTX; i < SDL_CONTROLLER_AXIS_MAX; i++) {
-            const auto axis = static_cast<SDL_GameControllerAxis>(i);
-            const auto axisValue = SDL_GameControllerGetAxis(gamepad, axis) / 32767.0f;
-            int32_t axisDirection = 0;
-            if (axisValue < -0.7f) {
-                axisDirection = NEGATIVE;
-            } else if (axisValue > 0.7f) {
-                axisDirection = POSITIVE;
-            }
-
-            if (axisDirection == 0) {
-                continue;
-            }
-
-            mapping = std::make_shared<SDLAxisDirectionToAxisDirectionMapping>(portIndex, stickIndex, direction, axis,
-                                                                               axisDirection);
-            break;
+        if (axisInput.axis != -1) {
+            return std::make_shared<SDLAxisDirectionToAxisDirectionMapping>(
+                portIndex, stickIndex, direction, axisInput.axis, axisInput.direction, axisInput.deviceGuid);
         }
     }
 
-    return mapping;
+    return nullptr;
 }
 
 std::shared_ptr<ControllerAxisDirectionMapping>

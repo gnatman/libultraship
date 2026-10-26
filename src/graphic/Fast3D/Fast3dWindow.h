@@ -47,6 +47,17 @@ class Fast3dWindow : public Ship::Window {
     uintptr_t GetGfxFrameBuffer() override;
     const char* GetKeyName(int32_t scancode) override;
 
+    GfxRenderingAPI* GetRenderingApi() {
+        return mRenderingApi;
+    }
+    void SetVRBaseTrackingSpace(const float* pos, const float* rotQuat) override;
+#ifdef ENABLE_VR
+    Ship::VRPose* GetVRPose() override;
+    void BeginVRHudPass() override;
+    void EndVRHudPass() override;
+    uintptr_t GetGfxHudFrameBuffer() override;
+#endif
+
     void InitWindowManager();
     void SetTargetFps(int32_t fps);
     void SetMaximumFrameLatency(int32_t latency);
@@ -71,5 +82,23 @@ class Fast3dWindow : public Ship::Window {
     GfxRenderingAPI* mRenderingApi;
     GfxWindowBackend* mWindowManagerApi;
     std::shared_ptr<Interpreter> mInterpreter = nullptr;
+#ifdef ENABLE_VR
+    uintptr_t mVRMirrorSRV = 0;
+    int mVRHudLayerIndex = -1;
+    int mVRHudFbId = -1;
+
+    int mHudPassDepth = 0;
+    void* mSavedEyeRtv = nullptr;
+    void* mSavedEyeDsv = nullptr;
+    int32_t mSavedEyeRtvWidth = 0;
+    int32_t mSavedEyeRtvHeight = 0;
+    GfxDimensions mSavedDims = {};
+    int mSavedCurrentEye = 0;
+    XYWidthHeight mSavedViewport = {};
+    XYWidthHeight mSavedScissor = {};
+    bool mHudWasClearedThisFrame = false;
+    bool mHudImageAcquiredThisFrame = false;
+    uint32_t mVRHudImgIdx = 0;
+#endif
 };
 } // namespace Fast

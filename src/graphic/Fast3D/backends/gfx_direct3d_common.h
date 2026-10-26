@@ -114,6 +114,37 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
 
     PFN_D3D11_CREATE_DEVICE mDX11CreateDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mContext;
+    
+    void* GetDevice() override {
+        return mDevice.Get();
+    }
+    void* GetContext() override {
+        return mContext.Get();
+    }
+
+    void* mOverrideRTV = nullptr;
+    void* mOverrideDSV = nullptr;
+    int32_t mOverrideWidth = 0;
+    int32_t mOverrideHeight = 0;
+
+    void SetOverrideRenderTarget(void* rtv, void* dsv, int32_t width, int32_t height) override {
+        mOverrideRTV = rtv;
+        mOverrideDSV = dsv;
+        mOverrideWidth = width;
+        mOverrideHeight = height;
+
+        // Invalidate cached pipeline states so new target gets fresh bindings
+        mLastDepthTest = -1;
+        mLastDepthMask = -1;
+        mLastZmodeDecal = -1;
+        mLastShaderProgram = nullptr;
+        mLastBlendState.Reset();
+        mDepthStencilState.Reset();
+        mRasterizerState.Reset();
+        mLastVertexBufferStride = 0;
+        mLastPrimitaveTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    }
+
     Microsoft::WRL::ComPtr<ID3D11Device> mDevice;
     GfxWindowBackendDXGI* mWindowBackend = nullptr;
     D3D_FEATURE_LEVEL mFeatureLevel;

@@ -15,10 +15,14 @@ class ConnectedPhysicalDeviceManager {
 
     std::unordered_map<int32_t, SDL_GameController*> GetConnectedSDLGamepadsForPort(uint8_t portIndex);
     std::unordered_map<int32_t, std::string> GetConnectedSDLGamepadNames();
+    std::unordered_map<int32_t, SDL_Joystick*> GetConnectedSDLJoysticksForPort(uint8_t portIndex);
+    std::unordered_map<int32_t, std::string> GetConnectedSDLJoystickNames();
     std::unordered_set<int32_t> GetIgnoredInstanceIdsForPort(uint8_t portIndex);
     bool PortIsIgnoringInstanceId(uint8_t portIndex, int32_t instanceId);
     void IgnoreInstanceIdForPort(uint8_t portIndex, int32_t instanceId);
     void UnignoreInstanceIdForPort(uint8_t portIndex, int32_t instanceId);
+
+    std::string GetDeviceGuidForInstanceId(int32_t instanceId);
 
     void HandlePhysicalDeviceConnect(int32_t sdlDeviceIndex);
     void HandlePhysicalDeviceDisconnect(int32_t sdlJoystickInstanceId);
@@ -27,6 +31,10 @@ class ConnectedPhysicalDeviceManager {
   private:
     std::unordered_map<int32_t, SDL_GameController*> mConnectedSDLGamepads;
     std::unordered_map<int32_t, std::string> mConnectedSDLGamepadNames;
+    std::unordered_map<int32_t, std::string> mConnectedSDLGamepadGuids;
+    std::unordered_map<int32_t, SDL_Joystick*> mConnectedSDLJoysticks;
+    std::unordered_map<int32_t, std::string> mConnectedSDLJoystickNames;
+    std::unordered_map<int32_t, std::string> mConnectedSDLJoystickGuids;
     std::unordered_map<uint8_t, std::unordered_set<int32_t>> mIgnoredInstanceIds;
 };
 } // namespace Ship

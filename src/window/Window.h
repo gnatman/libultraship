@@ -1,4 +1,5 @@
 #pragma once
+#include "VRPose.h"
 
 #include <memory>
 #include <filesystem>
@@ -23,6 +24,7 @@ struct CoordsF {
 };
 
 class Config;
+
 
 class Window {
     friend class Context;
@@ -62,6 +64,11 @@ class Window {
     virtual bool IsRunning() = 0;
     virtual const char* GetKeyName(int32_t scancode) = 0;
     virtual uintptr_t GetGfxFrameBuffer() = 0;
+    virtual VRPose* GetVRPose() { return nullptr; }
+    virtual void BeginVRHudPass() {}
+    virtual void EndVRHudPass() {}
+    virtual uintptr_t GetGfxHudFrameBuffer() { return 0; }
+    virtual void SetVRBaseTrackingSpace(const float* pos, const float* rotQuat) {}
 
     WindowBackend GetWindowBackend();
     std::shared_ptr<std::vector<WindowBackend>> GetAvailableWindowBackends();

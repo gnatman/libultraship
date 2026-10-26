@@ -6,7 +6,8 @@ class SDLAxisDirectionToAxisDirectionMapping final : public ControllerAxisDirect
                                                      public SDLAxisDirectionToAnyMapping {
   public:
     SDLAxisDirectionToAxisDirectionMapping(uint8_t portIndex, StickIndex stickIndex, Direction direction,
-                                           int32_t sdlControllerAxis, int32_t axisDirection);
+                                           int32_t sdlControllerAxis, int32_t axisDirection,
+                                           std::string deviceGuid = "");
     float GetNormalizedAxisDirectionValue() override;
     std::string GetAxisDirectionMappingId() override;
     int8_t GetMappingType() override;
@@ -14,5 +15,8 @@ class SDLAxisDirectionToAxisDirectionMapping final : public ControllerAxisDirect
     void EraseFromConfig() override;
     std::string GetPhysicalDeviceName() override;
     std::string GetPhysicalInputName() override;
+
+  private:
+    std::string mDeviceGuid;
 };
 } // namespace Ship

@@ -58,6 +58,7 @@ class GfxRenderingAPI {
                                              bool opengl_invertY, bool render_target, bool has_depth_buffer,
                                              bool can_extract_depth) = 0;
     virtual void StartDrawToFramebuffer(int fbId, float noiseScale) = 0;
+    virtual void SetOverrideRenderTarget(void* rtv, void* dsv, int32_t width, int32_t height) {}
     virtual void CopyFramebuffer(int fbDstId, int fbSrcId, int srcX0, int srcY0, int srcX1, int srcY1, int dstX0,
                                  int dstY0, int dstX1, int dstY1) = 0;
     virtual void ClearFramebuffer(bool color, bool depth) = 0;
@@ -72,6 +73,8 @@ class GfxRenderingAPI {
     virtual FilteringMode GetTextureFilter() = 0;
     virtual void SetSrgbMode() = 0;
     virtual ImTextureID GetTextureById(int id) = 0;
+    virtual void* GetDevice() { return nullptr; }
+    virtual void* GetContext() { return nullptr; }
 
   protected:
     int8_t mCurrentDepthTest = 0;

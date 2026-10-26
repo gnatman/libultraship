@@ -319,6 +319,9 @@ void GfxWindowBackendSDL2::Init(const char* gameName, const char* gfxApiName, bo
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 #endif
 
+#ifdef _WIN32
+    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);

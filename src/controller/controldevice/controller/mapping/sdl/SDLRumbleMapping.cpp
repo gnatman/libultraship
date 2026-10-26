@@ -15,18 +15,26 @@ SDLRumbleMapping::SDLRumbleMapping(uint8_t portIndex, uint8_t lowFrequencyIntens
 }
 
 void SDLRumbleMapping::StartRumble() {
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+    auto mgr = Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager();
+
+    for (const auto& [instanceId, gamepad] : mgr->GetConnectedSDLGamepadsForPort(mPortIndex)) {
         SDL_GameControllerRumble(gamepad, mLowFrequencyIntensity, mHighFrequencyIntensity, 0);
+    }
+
+    for (const auto& [instanceId, joystick] : mgr->GetConnectedSDLJoysticksForPort(mPortIndex)) {
+        SDL_JoystickRumble(joystick, mLowFrequencyIntensity, mHighFrequencyIntensity, 0);
     }
 }
 
 void SDLRumbleMapping::StopRumble() {
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+    auto mgr = Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager();
+
+    for (const auto& [instanceId, gamepad] : mgr->GetConnectedSDLGamepadsForPort(mPortIndex)) {
         SDL_GameControllerRumble(gamepad, 0, 0, 0);
+    }
+
+    for (const auto& [instanceId, joystick] : mgr->GetConnectedSDLJoysticksForPort(mPortIndex)) {
+        SDL_JoystickRumble(joystick, 0, 0, 0);
     }
 }
 

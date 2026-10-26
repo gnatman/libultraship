@@ -26,9 +26,11 @@
 
 #include "interpreter.h"
 #include "lus_gbi.h"
+#include "public/bridge/VRHudBridge.h"
 #include "backends/gfx_window_manager_api.h"
 #include "backends/gfx_rendering_api.h"
 
+#include "window/Window.h"
 #include "window/gui/Gui.h"
 #include "resource/ResourceManager.h"
 #include "utils/Utils.h"
@@ -124,6 +126,15 @@ void GfxSetInstance(std::shared_ptr<Interpreter> gfx) {
 
 void Interpreter::Flush() {
     if (mBufVboLen > 0) {
+#ifdef ENABLE_VR
+        if (mVREnabled && mInHudPass && mVRCurrentEye > 0) {
+            // HUD already rendered into the quad layer during eye 0;
+            // swallow redundant draws on subsequent eyes.
+            mBufVboLen = 0;
+            mBufVboNumTris = 0;
+            return;
+        }
+#endif
         mRapi->DrawTriangles(mBufVbo, mBufVboLen, mBufVboNumTris);
         mBufVboLen = 0;
         mBufVboNumTris = 0;
@@ -1162,14 +1173,45 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             return;
         }
 
-        float x = v->ob[0] * mRsp->MP_matrix[0][0] + v->ob[1] * mRsp->MP_matrix[1][0] +
-                  v->ob[2] * mRsp->MP_matrix[2][0] + mRsp->MP_matrix[3][0];
-        float y = v->ob[0] * mRsp->MP_matrix[0][1] + v->ob[1] * mRsp->MP_matrix[1][1] +
-                  v->ob[2] * mRsp->MP_matrix[2][1] + mRsp->MP_matrix[3][1];
-        float z = v->ob[0] * mRsp->MP_matrix[0][2] + v->ob[1] * mRsp->MP_matrix[1][2] +
-                  v->ob[2] * mRsp->MP_matrix[2][2] + mRsp->MP_matrix[3][2];
-        float w = v->ob[0] * mRsp->MP_matrix[0][3] + v->ob[1] * mRsp->MP_matrix[1][3] +
-                  v->ob[2] * mRsp->MP_matrix[2][3] + mRsp->MP_matrix[3][3];
+        float x, y, z, w;
+
+#ifdef ENABLE_VR
+        bool isOrtho = fabsf(mRsp->P_matrix[3][3] - 1.0f) < 0.01f;
+        bool applyVR = mVREnabled && !mInHudPass && !isOrtho;
+
+        if (applyVR) {
+            float* m = (float*)&mRsp->modelview_matrix_stack[mRsp->modelview_matrix_stack_size - 1];
+            
+            float cam_x = v->ob[0] * m[0] + v->ob[1] * m[4] + v->ob[2] * m[8] + m[12];
+            float cam_y = v->ob[0] * m[1] + v->ob[1] * m[5] + v->ob[2] * m[9] + m[13];
+            float cam_z = v->ob[0] * m[2] + v->ob[1] * m[6] + v->ob[2] * m[10] + m[14];
+            float cam_w = v->ob[0] * m[3] + v->ob[1] * m[7] + v->ob[2] * m[11] + m[15];
+
+            float* vrV = (float*)mVROverrideView;
+            float eye_x, eye_y, eye_z, eye_w;
+
+            eye_x = cam_x * vrV[0] + cam_y * vrV[4] + cam_z * vrV[8] + cam_w * vrV[12];
+            eye_y = cam_x * vrV[1] + cam_y * vrV[5] + cam_z * vrV[9] + cam_w * vrV[13];
+            eye_z = cam_x * vrV[2] + cam_y * vrV[6] + cam_z * vrV[10] + cam_w * vrV[14];
+            eye_w = cam_x * vrV[3] + cam_y * vrV[7] + cam_z * vrV[11] + cam_w * vrV[15];
+
+            float* vrP = (float*)mVROverrideProjection;
+            x = eye_x * vrP[0] + eye_y * vrP[4] + eye_z * vrP[8] + eye_w * vrP[12];
+            y = eye_x * vrP[1] + eye_y * vrP[5] + eye_z * vrP[9] + eye_w * vrP[13];
+            z = eye_x * vrP[2] + eye_y * vrP[6] + eye_z * vrP[10] + eye_w * vrP[14];
+            w = eye_x * vrP[3] + eye_y * vrP[7] + eye_z * vrP[11] + eye_w * vrP[15];
+        } else
+#endif
+        {
+            x = v->ob[0] * mRsp->MP_matrix[0][0] + v->ob[1] * mRsp->MP_matrix[1][0] +
+                v->ob[2] * mRsp->MP_matrix[2][0] + mRsp->MP_matrix[3][0];
+            y = v->ob[0] * mRsp->MP_matrix[0][1] + v->ob[1] * mRsp->MP_matrix[1][1] +
+                v->ob[2] * mRsp->MP_matrix[2][1] + mRsp->MP_matrix[3][1];
+            z = v->ob[0] * mRsp->MP_matrix[0][2] + v->ob[1] * mRsp->MP_matrix[1][2] +
+                v->ob[2] * mRsp->MP_matrix[2][2] + mRsp->MP_matrix[3][2];
+            w = v->ob[0] * mRsp->MP_matrix[0][3] + v->ob[1] * mRsp->MP_matrix[1][3] +
+                v->ob[2] * mRsp->MP_matrix[2][3] + mRsp->MP_matrix[3][3];
+        }
 
         float world_pos[3] = { 0.0 };
         if (mRsp->geometry_mode & G_LIGHTING_POSITIONAL) {
@@ -1179,7 +1221,10 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             world_pos[2] = v->ob[0] * mtx[0][2] + v->ob[1] * mtx[1][2] + v->ob[2] * mtx[2][2] + mtx[3][2];
         }
 
-        x = AdjXForAspectRatio(x);
+        #ifdef ENABLE_VR
+        if (!applyVR)
+#endif
+            x = AdjXForAspectRatio(x);
 
         short U = v->tc[0] * mRsp->texture_scaling_factor.s >> 16;
         short V = v->tc[1] * mRsp->texture_scaling_factor.t >> 16;
@@ -1359,10 +1404,17 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
 
     // if (rand()%2) return;
 
+#ifdef ENABLE_VR
+    if (!mVREnabled && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
+        // The whole triangle lies outside the visible area
+        return;
+    }
+#else
     if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
         // The whole triangle lies outside the visible area
         return;
     }
+#endif
 
     const uint32_t cull_both = get_attr(CULL_BOTH);
     const uint32_t cull_front = get_attr(CULL_FRONT);
@@ -1799,8 +1851,8 @@ void Interpreter::AdjustVIewportOrScissor(XYWidthHeight* area) {
         area->x *= RATIO_X(mActiveFrameBuffer, mCurDimensions);
         area->y *= RATIO_Y(mActiveFrameBuffer, mCurDimensions);
 
-        if (!mRendersToFb || (mMsaaLevel > 1 && mCurDimensions.width == mGameWindowViewport.width &&
-                              mCurDimensions.height == mGameWindowViewport.height)) {
+        if (!mVREnabled && (!mRendersToFb || (mMsaaLevel > 1 && mCurDimensions.width == mGameWindowViewport.width &&
+                              mCurDimensions.height == mGameWindowViewport.height))) {
             area->x += mGameWindowViewport.x;
             area->y += mGfxCurrentWindowDimensions.height - (mGameWindowViewport.y + mGameWindowViewport.height);
         }
@@ -1817,6 +1869,19 @@ void Interpreter::AdjustVIewportOrScissor(XYWidthHeight* area) {
 }
 
 void Interpreter::CalcAndSetViewport(const F3DVp_t* viewport) {
+#ifdef ENABLE_VR
+    if (mVREnabled && !mInHudPass) {
+        mRdp->viewport.x = 0;
+        mRdp->viewport.y = 0;
+        mRdp->viewport.width = mVROverrideWidth;
+        mRdp->viewport.height = mVROverrideHeight;
+        mRapi->SetViewport(0, 0, mVROverrideWidth, mVROverrideHeight);
+        mRenderingState.viewport = mRdp->viewport;
+        mRdp->viewport_or_scissor_changed = true;
+        return;
+    }
+#endif
+
     // 2 bits fraction
     float width = 2.0f * viewport->vscale[0] / 4.0f;
     float height = 2.0f * viewport->vscale[1] / 4.0f;
@@ -2728,8 +2793,25 @@ bool gfx_invalidate_tex_cache_handler_f3dex2(F3DGfx** cmd) {
 
 bool gfx_noop_handler_f3dex2(F3DGfx** cmd0) {
     F3DGfx* cmd = *cmd0;
+    const uint32_t p = C0(16, 8);
+    const uint32_t w1 = static_cast<uint32_t>(cmd->words.w1);
+
+    // libultraship magic NOOP markers: emitted by gDPNoOpTag(pkt, TAG) with
+    // p == 0. Dispatch to Window-level VR HUD hooks if present.
+    if (p == 0 && (w1 == LUS_NOOP_TAG_VR_HUD_PASS_BEGIN || w1 == LUS_NOOP_TAG_VR_HUD_PASS_END)) {
+#ifdef ENABLE_VR
+        if (auto window = Ship::Context::GetInstance()->GetWindow()) {
+            if (w1 == LUS_NOOP_TAG_VR_HUD_PASS_BEGIN) {
+                window->BeginVRHudPass();
+            } else {
+                window->EndVRHudPass();
+            }
+        }
+#endif
+        return false;
+    }
+
     const char* filename = (const char*)(cmd)->words.w1;
-    uint32_t p = C0(16, 8);
     uint32_t l = C0(0, 16);
     if (p == 7) {
         g_exec_stack.openDisp(filename, l);
@@ -4295,9 +4377,10 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     SpReset();
 
     mGetPixelDepthPending.clear();
-    mGetPixelDepthCached.clear();
-
     mCurMtxReplacements = &mtx_replacements;
+#ifdef ENABLE_VR
+    mInHudPass = false;
+#endif
 
     mRapi->UpdateFramebufferParameters(0, mGfxCurrentWindowDimensions.width, mGfxCurrentWindowDimensions.height, 1,
                                        false, true, true, !mRendersToFb);

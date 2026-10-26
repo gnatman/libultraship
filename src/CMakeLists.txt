@@ -139,6 +139,18 @@ source_group("resource/archive" FILES ${Source_Files__Resource__Archive})
 
 target_sources(libultraship PRIVATE ${Source_Files__Resource} ${Source_Files__Resource__Types} ${Source_Files__Resource__Factories} ${Source_Files__Resource__Archive})
 
+#=================== VR ===================
+
+if(ENABLE_VR)
+    file(GLOB Source_Files__VR RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "vr/*.h" "vr/*.cpp")
+    source_group("vr" FILES ${Source_Files__VR})
+    target_sources(libultraship PRIVATE ${Source_Files__VR})
+    target_include_directories(libultraship PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vr)
+    find_package(OpenXR REQUIRED)
+    target_link_libraries(libultraship PUBLIC OpenXR::openxr_loader)
+    target_compile_definitions(libultraship PUBLIC ENABLE_VR)
+endif()
+
 #=================== Graphic ===================
 
 file(GLOB Source_Files__Graphic RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "graphic/Fast3D/*.h" "graphic/Fast3D/*.cpp" "graphic/Fast3D/*.c" "graphic/Fast3D/backends/*.cpp" "graphic/Fast3D/debug/*.h" "graphic/Fast3D/debug/*.cpp" "graphic/Fast3D/debug/*.c")

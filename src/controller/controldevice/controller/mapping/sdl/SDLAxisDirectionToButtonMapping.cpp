@@ -32,15 +32,29 @@ void SDLAxisDirectionToButtonMapping::UpdatePad(CONTROLLERBUTTONS_T& padButtons)
                                       ->GetTriggerAxisThresholdPercentage();
     }
 
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+    auto mgr = Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager();
+
+    for (const auto& [instanceId, gamepad] : mgr->GetConnectedSDLGamepadsForPort(mPortIndex)) {
         const auto axisValue = SDL_GameControllerGetAxis(gamepad, mControllerAxis);
 
         auto axisMinValue = SDL_JOYSTICK_AXIS_MAX * (axisThresholdPercentage / 100.0f);
         if ((mAxisDirection == POSITIVE && axisValue > axisMinValue) ||
             (mAxisDirection == NEGATIVE && axisValue < -axisMinValue)) {
             padButtons |= mBitmask;
+            return;
+        }
+    }
+
+    for (const auto& [instanceId, joystick] : mgr->GetConnectedSDLJoysticksForPort(mPortIndex)) {
+        if ((int)mControllerAxis < SDL_JoystickNumAxes(joystick)) {
+            const auto axisValue = SDL_JoystickGetAxis(joystick, (int)mControllerAxis);
+
+            auto axisMinValue = SDL_JOYSTICK_AXIS_MAX * (axisThresholdPercentage / 100.0f);
+            if ((mAxisDirection == POSITIVE && axisValue > axisMinValue) ||
+                (mAxisDirection == NEGATIVE && axisValue < -axisMinValue)) {
+                padButtons |= mBitmask;
+                return;
+            }
         }
     }
 }

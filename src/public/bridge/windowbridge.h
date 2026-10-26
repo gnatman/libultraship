@@ -13,6 +13,9 @@ float WindowGetAspectRatio();
 int32_t WindowGetPosX();
 int32_t WindowGetPosY();
 bool WindowIsFullscreen();
+bool WindowIsVREnabled();
+void WindowGetVRPose(float* pos, float* quat);
+void WindowSetVRBaseTrackingSpace(const float* pos, const float* rotQuat);
 
 #ifdef __cplusplus
 };
